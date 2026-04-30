@@ -86,11 +86,13 @@ export function Sidebar(props: {
     sync.set("todo", props.sessionID, result.data ?? [])
     dialog.clear()
   }
-  const updateTasks = async (action: "claim" | "clear", item: QueueTask) => {
+  const updateTasks = async (action: "claim" | "unclaim" | "clear", item: QueueTask) => {
     if (!item.id) return
     const result =
       action === "claim"
         ? await sdk.client.session.todoClaim({ sessionID: props.sessionID, id: item.id })
+        : action === "unclaim"
+          ? await sdk.client.session.todoUnclaim({ sessionID: props.sessionID, id: item.id })
         : await sdk.client.session.todoClear({ sessionID: props.sessionID, id: item.id })
     sync.set("todo", props.sessionID, result.data ?? [])
     dialog.clear()
@@ -263,8 +265,15 @@ export function Sidebar(props: {
                   </Show>
                 </box>
               </Match>
+              <Match when={selectedTab() === "general"}>
+                <box gap={1}>
+                  <TuiPluginRuntime.Slot name="sidebar_content" session_id={props.sessionID} />
+                </box>
+              </Match>
               <Match when={true}>
-                <TuiPluginRuntime.Slot name="sidebar_content" session_id={props.sessionID} />
+                <Show when={selectedTab() === "knowledge"}>
+                  <TuiPluginRuntime.Slot name="sidebar_content" session_id={props.sessionID} />
+                </Show>
               </Match>
             </Switch>
           </box>
@@ -306,7 +315,7 @@ function AgentStatus(props: { slot: number; name: string; status: string; tone: 
 function TaskDialog(props: {
   item: QueueTask
   onClose: () => void
-  onAction: (action: "claim" | "clear", item: QueueTask) => Promise<void>
+  onAction: (action: "claim" | "unclaim" | "clear", item: QueueTask) => Promise<void>
   onSave: (item: QueueTask, content: string) => Promise<void>
 }) {
   const { theme } = useTheme()
@@ -315,7 +324,7 @@ function TaskDialog(props: {
   let textarea: TextareaRenderable
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
   const agent = () => props.item.completedBy ?? props.item.claimedBy ?? props.item.createdBy ?? "unknown"
-  const runAction = async (action: "claim" | "clear") => {
+  const runAction = async (action: "claim" | "unclaim" | "clear") => {
     if (state() === "working") return
     setState("working")
     await props.onAction(action, props.item).then(
@@ -384,7 +393,12 @@ function TaskDialog(props: {
         <box flexDirection="row" gap={1}>
           <text fg={theme.textMuted}>|</text>
           <Button label="Clear" fg={state() === "working" ? theme.textMuted : theme.error} bg={theme.backgroundElement} onClick={() => void runAction("clear")} />
-          <Button label="Claim" fg={state() === "working" ? theme.textMuted : theme.success} bg={theme.backgroundElement} onClick={() => void runAction("claim")} />
+          <Button
+            label={props.item.status === "completed" ? "Unclaim" : "Claim"}
+            fg={state() === "working" ? theme.textMuted : props.item.status === "completed" ? theme.warning : theme.success}
+            bg={theme.backgroundElement}
+            onClick={() => void runAction(props.item.status === "completed" ? "unclaim" : "claim")}
+          />
         </box>
         <box flexDirection="row" gap={1}>
           <Button label="Cancel" fg={theme.text} onClick={props.onClose} />

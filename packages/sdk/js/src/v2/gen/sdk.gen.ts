@@ -118,6 +118,8 @@ import type {
   SessionAbortResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
+  SessionCodexQuotaErrors,
+  SessionCodexQuotaResponses,
   SessionCommandErrors,
   SessionCommandResponses,
   SessionCreateErrors,
@@ -161,6 +163,8 @@ import type {
   SessionTodoEditResponses,
   SessionTodoErrors,
   SessionTodoResponses,
+  SessionTodoUnclaimErrors,
+  SessionTodoUnclaimResponses,
   SessionUnrevertErrors,
   SessionUnrevertResponses,
   SessionUnshareErrors,
@@ -1764,6 +1768,36 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Get Codex quota status
+   *
+   * Retrieve OpenAI Codex quota and reset timer status for ChatGPT-authenticated OpenAI models.
+   */
+  public codexQuota<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionCodexQuotaResponses, SessionCodexQuotaErrors, ThrowOnError>({
+      url: "/session/codex-quota",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Delete session
    *
    * Delete a session and permanently remove all associated data, including messages and history.
@@ -2051,6 +2085,47 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<SessionTodoClaimResponses, SessionTodoClaimErrors, ThrowOnError>({
       url: "/session/{sessionID}/todo/claim",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Unclaim todo task
+   *
+   * Restore a completed or claimed project-scoped task back to pending.
+   */
+  public todoUnclaim<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      id?: string
+      agent?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "agent" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionTodoUnclaimResponses, SessionTodoUnclaimErrors, ThrowOnError>({
+      url: "/session/{sessionID}/todo/unclaim",
       ...options,
       ...params,
       headers: {

@@ -49,7 +49,7 @@ function message(providerID: ProviderID, e: APICallError) {
   return iife(() => {
     const msg = e.message
     if (msg === "") {
-      if (e.responseBody) return e.responseBody
+      if (e.responseBody) return responseBodyMessage("Provider returned an empty error message", e.responseBody)
       if (e.statusCode) {
         const err = STATUS_CODES[e.statusCode]
         if (err) return err
@@ -82,8 +82,30 @@ function message(providerID: ProviderID, e: APICallError) {
       return msg
     }
 
-    return `${msg}: ${e.responseBody}`
+    return `${msg}: ${responseBodyMessage("provider response", e.responseBody)}`
   }).trim()
+}
+
+function responseBodyMessage(prefix: string, body: string) {
+  const malformed = malformedJSON(body)
+  if (malformed) return `${prefix} was malformed JSON (${malformed})`
+  return `${prefix}: ${preview(body)}`
+}
+
+function malformedJSON(body: string) {
+  const trimmed = body.trim()
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return
+  try {
+    JSON.parse(trimmed)
+    return
+  } catch (err) {
+    return err instanceof Error ? err.message : "parse failed"
+  }
+}
+
+function preview(body: string) {
+  const single = body.replace(/\s+/g, " ").trim()
+  return single.length > 500 ? `${single.slice(0, 500)}… (${body.length} bytes total)` : single
 }
 
 function json(input: unknown) {
@@ -188,7 +210,18 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
     }
   }
 
-  const metadata = input.error.url ? { url: input.error.url } : undefined
+  const malformed = input.error.responseBody ? malformedJSON(input.error.responseBody) : undefined
+  const metadata = {
+    ...(input.error.url ? { url: input.error.url } : {}),
+    provider: input.providerID,
+    ...(malformed ? { cause: "malformed_json", parseError: malformed } : {}),
+    ...(input.error.responseBody
+      ? {
+          responseBytes: String(input.error.responseBody.length),
+          responsePreview: preview(input.error.responseBody),
+        }
+      : {}),
+  }
   return {
     type: "api_error",
     message: m,

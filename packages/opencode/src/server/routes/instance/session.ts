@@ -13,6 +13,7 @@ import { SessionShare } from "@/share/session"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
+import { CodexQuota } from "@/codex/quota"
 import { Effect } from "effect"
 import { Agent } from "@/agent/agent"
 import { Snapshot } from "@/snapshot"
@@ -130,6 +131,29 @@ export const SessionRoutes = lazy(() =>
         jsonRequest("SessionRoutes.status", c, function* () {
           const svc = yield* SessionStatus.Service
           return Object.fromEntries(yield* svc.list())
+        }),
+    )
+    .get(
+      "/codex-quota",
+      describeRoute({
+        summary: "Get Codex quota status",
+        description: "Retrieve OpenAI Codex quota and reset timer status for ChatGPT-authenticated OpenAI models.",
+        operationId: "session.codexQuota",
+        responses: {
+          200: {
+            description: "Get Codex quota status",
+            content: {
+              "application/json": {
+                schema: resolver(zodObject(CodexQuota.Info)),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      async (c) =>
+        jsonRequest("SessionRoutes.codexQuota", c, function* () {
+          return yield* CodexQuota.Service.use((quota) => quota.read()).pipe(Effect.provide(CodexQuota.defaultLayer))
         }),
     )
     .get(
@@ -331,6 +355,41 @@ export const SessionRoutes = lazy(() =>
         return jsonRequest("SessionRoutes.todoClaim", c, function* () {
           const todo = yield* Todo.Service
           yield* todo.complete({ sessionID, id: body.id, agent: body.agent ?? "user" })
+          return yield* todo.get(sessionID)
+        })
+      },
+    )
+    .post(
+      "/:sessionID/todo/unclaim",
+      describeRoute({
+        summary: "Unclaim todo task",
+        description: "Restore a completed or claimed project-scoped task back to pending.",
+        operationId: "session.todoUnclaim",
+        responses: {
+          200: {
+            description: "Todo list",
+            content: {
+              "application/json": {
+                schema: resolver(Todo.Info.zod.array()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      validator("json", TodoTaskPayload),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        return jsonRequest("SessionRoutes.todoUnclaim", c, function* () {
+          const todo = yield* Todo.Service
+          yield* todo.unclaim({ sessionID, id: body.id })
           return yield* todo.get(sessionID)
         })
       },

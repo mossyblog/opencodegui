@@ -52,6 +52,7 @@ export interface Interface {
   readonly claim: (input: { sessionID: SessionID; id: string; agent: string }) => Effect.Effect<{ claimed?: Info; next?: Info }>
   readonly complete: (input: { sessionID: SessionID; id: string; agent: string }) => Effect.Effect<FinishResult>
   readonly cancel: (input: { sessionID: SessionID; id: string; agent: string }) => Effect.Effect<FinishResult>
+  readonly unclaim: (input: { sessionID: SessionID; id: string }) => Effect.Effect<void>
   readonly remove: (input: { sessionID: SessionID; id: string }) => Effect.Effect<void>
   readonly edit: (input: { sessionID: SessionID; id: string; content: string }) => Effect.Effect<void>
 }
@@ -295,6 +296,20 @@ export const layer = Layer.effect(
       return yield* finish({ ...input, status: "cancelled" })
     })
 
+    const unclaim = Effect.fn("Todo.unclaim")(function* (input: { sessionID: SessionID; id: string }) {
+      ensureSchema()
+      yield* Effect.sync(() =>
+        Database.use((db) =>
+          db
+            .update(TodoTable)
+            .set({ status: "pending", claimed_by: null, claimed_at: null, completed_by: null, completed_at: null })
+            .where(and(eq(TodoTable.project_id, projectID(input.sessionID)), eq(TodoTable.id, input.id)))
+            .run(),
+        ),
+      )
+      yield* bus.publish(Event.Updated, { sessionID: input.sessionID, todos: yield* get(input.sessionID) })
+    })
+
     const remove = Effect.fn("Todo.remove")(function* (input: { sessionID: SessionID; id: string }) {
       ensureSchema()
       yield* Effect.sync(() =>
@@ -319,7 +334,7 @@ export const layer = Layer.effect(
       yield* bus.publish(Event.Updated, { sessionID: input.sessionID, todos: yield* get(input.sessionID) })
     })
 
-    return Service.of({ update, get, create, claimNext, claim, complete, cancel, remove, edit })
+    return Service.of({ update, get, create, claimNext, claim, complete, cancel, unclaim, remove, edit })
   }),
 )
 

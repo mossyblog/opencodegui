@@ -1,11 +1,20 @@
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
-import { createMemo, For, Match, Show, Switch, createSignal } from "solid-js"
+import { createEffect, createMemo, For, Match, Show, Switch } from "solid-js"
+import { useProject } from "@tui/context/project"
+import { useSDK } from "@tui/context/sdk"
+import { useSync } from "@tui/context/sync"
 
 const id = "internal:sidebar-mcp"
+const collapsedKey = "sidebar_mcp_collapsed"
 
 function View(props: { api: TuiPluginApi }) {
-  const [open, setOpen] = createSignal(true)
+  const project = useProject()
+  const sdk = useSDK()
+  const sync = useSync()
   const theme = () => props.api.theme.current
+  const collapsed = createMemo(() => props.api.kv.get(collapsedKey, false))
+  const disabledKey = createMemo(() => `mcp_disabled:${project.instance.directory()}`)
+  const disabled = createMemo<string[]>(() => props.api.kv.get(disabledKey(), []))
   const list = createMemo(() => props.api.state.mcp())
   const on = createMemo(() => list().filter((item) => item.status === "connected").length)
   const bad = createMemo(
@@ -24,17 +33,37 @@ function View(props: { api: TuiPluginApi }) {
     if (status === "needs_client_registration") return theme().error
     return theme().textMuted
   }
+  const toggle = async (name: string) => {
+    if (sync.data.mcp[name]?.status === "connected") {
+      props.api.kv.set(disabledKey(), [...new Set([...disabled(), name])])
+      await sdk.client.mcp.disconnect({ name })
+    } else {
+      props.api.kv.set(disabledKey(), disabled().filter((item) => item !== name))
+      await sdk.client.mcp.connect({ name })
+    }
+    const result = await sdk.client.mcp.status()
+    if (result.data) sync.set("mcp", result.data)
+  }
+
+  createEffect(() => {
+    for (const item of list()) {
+      if (!disabled().includes(item.name)) continue
+      if (item.status !== "connected") continue
+      void sdk.client.mcp.disconnect({ name: item.name }).then(async () => {
+        const result = await sdk.client.mcp.status()
+        if (result.data) sync.set("mcp", result.data)
+      })
+    }
+  })
 
   return (
     <Show when={list().length > 0}>
       <box>
-        <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
-          <Show when={list().length > 2}>
-            <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
-          </Show>
+        <box flexDirection="row" gap={1} onMouseDown={() => props.api.kv.set(collapsedKey, !collapsed())}>
+          <text fg={theme().text}>{collapsed() ? "▶" : "▼"}</text>
           <text fg={theme().text}>
             <b>MCP</b>
-            <Show when={!open()}>
+            <Show when={collapsed()}>
               <span style={{ fg: theme().textMuted }}>
                 {" "}
                 ({on()} active{bad() > 0 ? `, ${bad()} error${bad() > 1 ? "s" : ""}` : ""})
@@ -42,17 +71,17 @@ function View(props: { api: TuiPluginApi }) {
             </Show>
           </text>
         </box>
-        <Show when={list().length <= 2 || open()}>
+        <Show when={!collapsed()}>
           <For each={list()}>
             {(item) => (
-              <box flexDirection="row" gap={1}>
+              <box flexDirection="row" gap={1} onMouseUp={() => void toggle(item.name)}>
                 <text
                   flexShrink={0}
                   style={{
                     fg: dot(item.status),
                   }}
                 >
-                  •
+                  {item.status === "connected" ? "(*)" : "( )"}
                 </text>
                 <text fg={theme().text} wrapMode="word">
                   {item.name}{" "}

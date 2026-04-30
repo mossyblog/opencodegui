@@ -1947,6 +1947,34 @@ export type McpResource = {
   client: string
 }
 
+export type CodexQuotaWindow = {
+  usedPercent: number
+  windowMinutes?: number
+  resetsAt?: number
+}
+
+export type CodexQuotaCredits = {
+  hasCredits: boolean
+  unlimited: boolean
+  balance?: string
+}
+
+export type CodexQuotaLimit = {
+  id: string
+  name?: string
+  primary?: CodexQuotaWindow
+  secondary?: CodexQuotaWindow
+  credits?: CodexQuotaCredits
+}
+
+export type CodexQuotaInfo = {
+  available: boolean
+  plan?: string
+  updatedAt: number
+  limits: Array<CodexQuotaLimit>
+  error?: string
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -3416,6 +3444,34 @@ export type SessionStatusResponses = {
 
 export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
 
+export type SessionCodexQuotaData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/codex-quota"
+}
+
+export type SessionCodexQuotaErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionCodexQuotaError = SessionCodexQuotaErrors[keyof SessionCodexQuotaErrors]
+
+export type SessionCodexQuotaResponses = {
+  /**
+   * Get Codex quota status
+   */
+  200: CodexQuotaInfo
+}
+
+export type SessionCodexQuotaResponse = SessionCodexQuotaResponses[keyof SessionCodexQuotaResponses]
+
 export type SessionDeleteData = {
   body?: never
   path: {
@@ -3703,6 +3759,43 @@ export type SessionTodoClaimResponses = {
 }
 
 export type SessionTodoClaimResponse = SessionTodoClaimResponses[keyof SessionTodoClaimResponses]
+
+export type SessionTodoUnclaimData = {
+  body?: {
+    id: string
+    agent?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/todo/unclaim"
+}
+
+export type SessionTodoUnclaimErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTodoUnclaimError = SessionTodoUnclaimErrors[keyof SessionTodoUnclaimErrors]
+
+export type SessionTodoUnclaimResponses = {
+  /**
+   * Todo list
+   */
+  200: Array<Todo>
+}
+
+export type SessionTodoUnclaimResponse = SessionTodoUnclaimResponses[keyof SessionTodoUnclaimResponses]
 
 export type SessionTodoClearData = {
   body?: {

@@ -43,6 +43,7 @@ import { DialogSkill } from "../dialog-skill"
 import { DialogWorkspaceCreate, restoreWorkspaceSession } from "../dialog-workspace-create"
 import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "@tui/context/args"
+import { DialogAgentPrompt } from "../dialog-agent-prompt"
 
 export type PromptProps = {
   sessionID?: string
@@ -150,7 +151,6 @@ export function Prompt(props: PromptProps) {
   let lastSubmittedEditorSelectionKey: string | undefined
   const [auto, setAuto] = createSignal<AutocompleteRef>()
   const currentProviderLabel = createMemo(() => local.model.parsed().provider)
-  const hasRightContent = createMemo(() => Boolean(props.right))
 
   function promptModelWarning() {
     toast.show({
@@ -213,6 +213,7 @@ export function Prompt(props: PromptProps) {
       cost: cost > 0 ? money.format(cost) : undefined,
     }
   })
+  const hasRightContent = createMemo(() => Boolean(props.right))
 
   const [store, setStore] = createStore<{
     prompt: PromptInfo
@@ -458,10 +459,16 @@ export function Prompt(props: PromptProps) {
           name: "agent",
         },
         onSelect: (dialog) => {
-          dialog.clear()
-          input.setText("/agent ")
-          setStore("prompt", { input: "/agent ", parts: [] })
-          input.gotoBufferEnd()
+          dialog.replace(() => (
+            <DialogAgentPrompt
+              onSubmit={(agent, prompt) => {
+                dialog.clear()
+                input.setText(`/agent ${agent} | ${prompt}`)
+                setStore("prompt", { input: `/agent ${agent} | ${prompt}`, parts: [] })
+                void submit()
+              }}
+            />
+          ))
         },
       },
       {
@@ -773,8 +780,8 @@ export function Prompt(props: PromptProps) {
       const prompt = pipe === -1 ? body.slice(target.length).trim() : body.slice(pipe + 1).trim()
       if (!target || !prompt) return
       const index = Number(target)
-      const selected = Number.isInteger(index) && index > 1
-        ? agents[index - 2]
+      const selected = Number.isInteger(index) && index > 0
+        ? agents[index - 1]
         : agents.find((item) => item.name === target || item.name.toLowerCase() === target.toLowerCase().replaceAll(" ", "-"))
       if (!selected) {
         toast.show({ message: `Agent not found: ${target}`, variant: "error" })

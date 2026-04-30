@@ -7,6 +7,7 @@ import {
   For,
   Match,
   on,
+  onCleanup,
   onMount,
   Show,
   Switch,
@@ -31,6 +32,7 @@ import type {
   UserMessage,
   TextPart,
   ReasoningPart,
+  FilePart,
 } from "@opencode-ai/sdk/v2"
 import { useLocal } from "@tui/context/local"
 import { Locale } from "@/util/locale"
@@ -95,6 +97,16 @@ addDefaultParsers(parsers.parsers)
 const GO_UPSELL_LAST_SEEN_AT = "go_upsell_last_seen_at"
 const GO_UPSELL_DONT_SHOW = "go_upsell_dont_show"
 const GO_UPSELL_WINDOW = 86_400_000 // 24 hrs
+const QUOTA_REFRESH_INTERVAL = 5 * 60 * 1000
+const ASSISTANT_FOOTER_BAR_SIZE = 6
+
+type Quota = {
+  available: boolean
+  limits: Array<{
+    id: string
+    secondary?: { usedPercent: number }
+  }>
+}
 
 const context = createContext<{
   width: number
@@ -1431,8 +1443,22 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const local = useLocal()
   const { theme } = useTheme()
   const sync = useSync()
+  const sdk = useSDK()
   const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
   const model = createMemo(() => Model.name(ctx.providers(), props.message.providerID, props.message.modelID))
+  const imagePaths = createMemo(() =>
+    (sync.data.part[props.message.parentID ?? ""] ?? [])
+      .filter((item) => item.type === "file" && item.mime.startsWith("image/") && item.source?.type === "file" && item.source.path)
+      .map((item) => (item as FilePart & { source: { type: "file"; path: string } }).source.path),
+  )
+  const [quota, setQuota] = createSignal<Quota>()
+  const promptQuota = createMemo(() => {
+    const window = quota()?.limits.find((item) => item.id === "codex")?.secondary
+    if (!window) return
+    const used = Math.max(0, Math.min(100, window.usedPercent))
+    const filled = Math.ceil((used / 100) * ASSISTANT_FOOTER_BAR_SIZE)
+    return `${"▰".repeat(filled)}${"▱".repeat(Math.max(0, ASSISTANT_FOOTER_BAR_SIZE - filled))} ${used.toFixed(0)}%`
+  })
 
   const final = createMemo(() => {
     return props.message.finish && !["tool-calls", "unknown"].includes(props.message.finish)
@@ -1447,6 +1473,24 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   })
 
   const keybind = useKeybind()
+
+  createEffect(() => {
+    if (!props.last || props.message.providerID !== "openai") {
+      setQuota(undefined)
+      return
+    }
+    let disposed = false
+    const refresh = async () => {
+      const result = await sdk.client.session.codexQuota().catch(() => undefined)
+      if (!disposed) setQuota(result?.data as Quota | undefined)
+    }
+    void refresh()
+    const timer = setInterval(refresh, QUOTA_REFRESH_INTERVAL)
+    onCleanup(() => {
+      disposed = true
+      clearInterval(timer)
+    })
+  })
 
   return (
     <>
@@ -1474,22 +1518,11 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
         </box>
       </Show>
       <Show when={props.message.error && props.message.error.name !== "MessageAbortedError"}>
-        <box
-          border={["left"]}
-          paddingTop={1}
-          paddingBottom={1}
-          paddingLeft={2}
-          marginTop={1}
-          backgroundColor={theme.backgroundPanel}
-          customBorderChars={SplitBorder.customBorderChars}
-          borderColor={theme.error}
-        >
-          <text fg={theme.textMuted}>{props.message.error?.data.message}</text>
-        </box>
+        <ErrorDetails error={props.message.error} />
       </Show>
       <Switch>
         <Match when={props.last || final() || props.message.error?.name === "MessageAbortedError"}>
-          <box paddingLeft={3}>
+          <box paddingLeft={3} flexDirection="row" justifyContent="space-between" gap={2}>
             <text marginTop={1}>
               <span
                 style={{
@@ -1510,10 +1543,87 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
                 <span style={{ fg: theme.textMuted }}> · interrupted</span>
               </Show>
             </text>
+            <Show when={promptQuota()}>
+              <text marginTop={1} fg={theme.textMuted} wrapMode="none">{promptQuota()}</text>
+            </Show>
           </box>
+          <Show when={imagePaths().length > 0}>
+            <box paddingLeft={3} paddingTop={1} gap={0}>
+              <For each={imagePaths()}>
+                {(item) => <text fg={theme.textMuted} wrapMode="none">image: {item}</text>}
+              </For>
+            </box>
+          </Show>
         </Match>
       </Switch>
     </>
+  )
+}
+
+function ErrorDetails(props: { error: AssistantMessage["error"] }) {
+  const { theme } = useTheme()
+  const toast = useToast()
+  const [open, setOpen] = createSignal(false)
+  const data = () => props.error?.data as
+    | {
+        message?: string
+        statusCode?: number
+        isRetryable?: boolean
+        responseBody?: string
+        metadata?: Record<string, string>
+      }
+    | undefined
+  const metadata = () => data()?.metadata ?? {}
+  const source = () => metadata().url ?? metadata().provider ?? props.error?.name ?? "unknown"
+  const cause = () => metadata().cause ?? metadata().parseError ?? data()?.message ?? "unknown"
+  const copy = () => {
+    const payload = [
+      `name: ${props.error?.name ?? "unknown"}`,
+      `source: ${source()}`,
+      `status: ${data()?.statusCode ?? "unknown"}`,
+      `retryable: ${String(data()?.isRetryable ?? false)}`,
+      `cause: ${cause()}`,
+      `message: ${data()?.message ?? ""}`,
+      "",
+      data()?.responseBody ?? metadata().responsePreview ?? "",
+    ].join("\n")
+    void Clipboard.copy(payload).then(
+      () => toast.show({ message: "Error details copied", variant: "success" }),
+      () => toast.show({ message: "Failed to copy error details", variant: "error" }),
+    )
+  }
+
+  return (
+    <box
+      border={["left"]}
+      paddingTop={1}
+      paddingBottom={1}
+      paddingLeft={2}
+      marginTop={1}
+      backgroundColor={theme.backgroundPanel}
+      customBorderChars={SplitBorder.customBorderChars}
+      borderColor={theme.error}
+      gap={0}
+    >
+      <box flexDirection="row" justifyContent="space-between" gap={1}>
+        <text fg={theme.textMuted} onMouseUp={() => setOpen((value) => !value)}>
+          {open() ? "[-]" : "[+]"} {data()?.message ?? "Provider error"}
+        </text>
+        <text fg={theme.textMuted} onMouseUp={copy}>[copy]</text>
+      </box>
+      <Show when={open()}>
+        <text fg={theme.textMuted}>source: {source()}</text>
+        <text fg={theme.textMuted}>status: {data()?.statusCode ?? "unknown"}</text>
+        <text fg={theme.textMuted}>retryable: {String(data()?.isRetryable ?? false)}</text>
+        <text fg={theme.textMuted}>cause: {cause()}</text>
+        <Show when={metadata().responseBytes}>
+          <text fg={theme.textMuted}>response bytes: {metadata().responseBytes}</text>
+        </Show>
+        <Show when={metadata().responsePreview}>
+          <text fg={theme.textMuted}>preview: {metadata().responsePreview}</text>
+        </Show>
+      </Show>
+    </box>
   )
 }
 
