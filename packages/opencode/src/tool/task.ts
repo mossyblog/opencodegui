@@ -7,6 +7,7 @@ import { Agent } from "../agent/agent"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
 import { Effect, Schema } from "effect"
+import { Permission } from "@/permission"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): void
@@ -57,8 +58,9 @@ export const TaskTool = Tool.define(
         return yield* Effect.fail(new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`))
       }
 
-      const canTask = next.permission.some((rule) => rule.permission === id)
-      const canTodo = next.permission.some((rule) => rule.permission === "todowrite")
+      const canTask = Permission.evaluate(id, params.subagent_type, next.permission).action !== "deny"
+      const canTodo = Permission.evaluate("todowrite", "*", next.permission).action !== "deny"
+      const canTaskQueue = Permission.evaluate("taskqueue", "*", next.permission).action !== "deny"
 
       const taskID = params.task_id
       const session = taskID
@@ -88,6 +90,15 @@ export const TaskTool = Tool.define(
               : [
                   {
                     permission: id,
+                    pattern: "*" as const,
+                    action: "deny" as const,
+                  },
+                ]),
+            ...(canTaskQueue
+              ? []
+              : [
+                  {
+                    permission: "taskqueue" as const,
                     pattern: "*" as const,
                     action: "deny" as const,
                   },
@@ -143,6 +154,7 @@ export const TaskTool = Tool.define(
               tools: {
                 ...(canTodo ? {} : { todowrite: false }),
                 ...(canTask ? {} : { task: false }),
+                ...(canTaskQueue ? {} : { taskqueue: false }),
                 ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
               },
               parts,

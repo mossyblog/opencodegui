@@ -296,7 +296,7 @@ export function createTuiApi(input: Input): TuiPluginApi {
           input.dialog.setSize(size)
         },
         get size() {
-          return input.dialog.size
+          return input.dialog.size === "small" ? "medium" : input.dialog.size
         },
         get depth() {
           return input.dialog.stack.length

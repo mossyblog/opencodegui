@@ -9,6 +9,16 @@ import { useRouteData } from "@tui/context/route"
 import { usePromptRef } from "../context/prompt"
 import { useLocal } from "../context/local"
 import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
+import { readFileSync } from "fs"
+import path from "path"
+
+const ForkLogo = readFileSync(path.join(import.meta.dirname, "../../../../../../../logo.md"), "utf8")
+  .trimEnd()
+  .split(/\r?\n/)
+const ForkLogoShape = {
+  left: ForkLogo,
+  right: ForkLogo.map(() => ""),
+}
 
 let once = false
 const placeholder = {
@@ -57,9 +67,13 @@ export function Home() {
       <box flexGrow={1} alignItems="center" paddingLeft={2} paddingRight={2}>
         <box flexGrow={1} minHeight={0} />
         <box height={4} minHeight={0} flexShrink={1} />
+        <box flexShrink={1} minHeight={0} alignItems="center">
+          <Logo shape={ForkLogoShape} ink={local.agent.color(local.agent.current()?.name ?? "build")} />
+        </box>
+        <box height={1} minHeight={0} flexShrink={1} />
         <box flexShrink={0}>
           <TuiPluginRuntime.Slot name="home_logo" mode="replace">
-            <Logo />
+            <Logo forkWordmark />
           </TuiPluginRuntime.Slot>
         </box>
         <box height={1} minHeight={0} flexShrink={1} />

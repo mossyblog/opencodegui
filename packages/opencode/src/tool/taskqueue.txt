@@ -1,0 +1,12 @@
+Use this tool to manage the shared task queue for the current session.
+
+The queue is visible in the session UI and is intended for coordinating work across agents. Use it instead of writing TODO files or relying on prose promises.
+
+Actions:
+- create: Add a new pending task.
+- list: Show the current queue.
+- claim_next: Claim the next pending task for the current agent.
+- complete: Mark a task complete by id.
+- cancel: Mark a task cancelled by id.
+
+When claiming or completing work, read the returned next task and continue with it unless the user has asked you to stop.

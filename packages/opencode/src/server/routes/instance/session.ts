@@ -35,6 +35,21 @@ const QueryBoolean = z.union([
   z.enum(["true", "false"]),
 ])
 
+const TodoTaskPayload = z.object({
+  id: z.string(),
+  agent: z.string().optional(),
+})
+
+const TodoCreatePayload = z.object({
+  content: z.string(),
+  priority: z.enum(["high", "medium", "low"]).optional(),
+})
+
+const TodoEditPayload = z.object({
+  id: z.string(),
+  content: z.string(),
+})
+
 function queryBoolean(value: z.infer<typeof QueryBoolean> | undefined) {
   if (value === undefined) return
   return value === true || value === "true"
@@ -210,6 +225,146 @@ export const SessionRoutes = lazy(() =>
         const sessionID = c.req.valid("param").sessionID
         return jsonRequest("SessionRoutes.todo", c, function* () {
           const todo = yield* Todo.Service
+          return yield* todo.get(sessionID)
+        })
+      },
+    )
+    .post(
+      "/:sessionID/todo/create",
+      describeRoute({
+        summary: "Create todo task",
+        description: "Create a project-scoped task from the active session.",
+        operationId: "session.todoCreate",
+        responses: {
+          200: {
+            description: "Todo list",
+            content: {
+              "application/json": {
+                schema: resolver(Todo.Info.zod.array()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      validator("json", TodoCreatePayload),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        return jsonRequest("SessionRoutes.todoCreate", c, function* () {
+          const todo = yield* Todo.Service
+          yield* todo.create({ sessionID, content: body.content, priority: body.priority ?? "medium", createdBy: "user" })
+          return yield* todo.get(sessionID)
+        })
+      },
+    )
+    .post(
+      "/:sessionID/todo/edit",
+      describeRoute({
+        summary: "Edit todo task",
+        description: "Edit a project-scoped task from the active session.",
+        operationId: "session.todoEdit",
+        responses: {
+          200: {
+            description: "Todo list",
+            content: {
+              "application/json": {
+                schema: resolver(Todo.Info.zod.array()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      validator("json", TodoEditPayload),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        return jsonRequest("SessionRoutes.todoEdit", c, function* () {
+          const todo = yield* Todo.Service
+          yield* todo.edit({ sessionID, id: body.id, content: body.content })
+          return yield* todo.get(sessionID)
+        })
+      },
+    )
+    .post(
+      "/:sessionID/todo/claim",
+      describeRoute({
+        summary: "Claim todo task",
+        description: "Claim a project-scoped task from the active session.",
+        operationId: "session.todoClaim",
+        responses: {
+          200: {
+            description: "Todo list",
+            content: {
+              "application/json": {
+                schema: resolver(Todo.Info.zod.array()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      validator("json", TodoTaskPayload),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        return jsonRequest("SessionRoutes.todoClaim", c, function* () {
+          const todo = yield* Todo.Service
+          yield* todo.complete({ sessionID, id: body.id, agent: body.agent ?? "user" })
+          return yield* todo.get(sessionID)
+        })
+      },
+    )
+    .post(
+      "/:sessionID/todo/clear",
+      describeRoute({
+        summary: "Clear todo task",
+        description: "Clear a project-scoped task from the active session.",
+        operationId: "session.todoClear",
+        responses: {
+          200: {
+            description: "Todo list",
+            content: {
+              "application/json": {
+                schema: resolver(Todo.Info.zod.array()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      validator("json", TodoTaskPayload),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        return jsonRequest("SessionRoutes.todoClear", c, function* () {
+          const todo = yield* Todo.Service
+          yield* todo.remove({ sessionID, id: body.id })
           return yield* todo.get(sessionID)
         })
       },

@@ -7,6 +7,7 @@ import { Todo } from "../session/todo"
 // here rather than referencing its `.shape` — the LLM-visible JSON Schema is
 // identical, and it removes the last zod dependency from this tool.
 const TodoItem = Schema.Struct({
+  id: Schema.optional(Schema.String).annotate({ description: "Stable task identifier" }),
   content: Schema.String.annotate({ description: "Brief description of the task" }),
   status: Schema.String.annotate({
     description: "Current status of the task: pending, in_progress, completed, cancelled",
@@ -43,12 +44,13 @@ export const TodoWriteTool = Tool.define<typeof Parameters, Metadata, Todo.Servi
             sessionID: ctx.sessionID,
             todos: params.todos,
           })
+          const todos = yield* todo.get(ctx.sessionID)
 
           return {
-            title: `${params.todos.filter((x) => x.status !== "completed").length} todos`,
-            output: JSON.stringify(params.todos, null, 2),
+            title: `${todos.filter((x) => x.status !== "completed").length} todos`,
+            output: JSON.stringify(todos, null, 2),
             metadata: {
-              todos: params.todos,
+              todos,
             },
           }
         }),

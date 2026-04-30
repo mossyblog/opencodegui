@@ -303,6 +303,7 @@ function build(shape: LogoShape): LogoContext {
 }
 
 const DEFAULT = build(logo)
+const GUI = ["              ", "█▀▀▀ █  █ ▀█▀", "█_^█ █__█ _█_", "▀▀▀▀ ▀▀▀▀ ▀▀▀"]
 const GO = build(go)
 
 function shimmer(x: number, y: number, frame: Frame, ctx: LogoContext) {
@@ -551,7 +552,7 @@ function buildIdleState(t: number, ctx: LogoContext): IdleState {
   return { cfg, reach, rings, active }
 }
 
-export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = {}) {
+export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean; forkWordmark?: boolean } = {}) {
   const ctx = props.shape ? build(props.shape) : DEFAULT
   const { theme } = useTheme()
   const [rings, setRings] = createSignal<Ring[]>([])
@@ -690,13 +691,14 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
     y: number,
     ink: RGBA,
     bold: boolean,
+    attributes: (typeof TextAttributes)[keyof typeof TextAttributes] | undefined,
     off: number,
     frame: Frame,
     dusk: Frame,
     state: IdleState | undefined,
   ): JSX.Element[] => {
     const shadow = tint(theme.background, ink, 0.25)
-    const attrs = bold ? TextAttributes.BOLD : undefined
+    const attrs = attributes ?? (bold ? TextAttributes.BOLD : undefined)
 
     return Array.from(line).map((char, i) => {
       if (char === " ") {
@@ -865,20 +867,36 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
         {(line, index) => (
           <box flexDirection="row" gap={1}>
             <box flexDirection="row">
-              {renderLine(line, index(), props.ink ?? theme.textMuted, !!props.ink, 0, frame(), dusk(), idleState())}
+              {renderLine(line, index(), props.ink ?? theme.textMuted, !!props.ink, undefined, 0, frame(), dusk(), idleState())}
             </box>
             <box flexDirection="row">
               {renderLine(
                 ctx.shape.right[index()],
                 index(),
-                props.ink ?? theme.text,
+                props.forkWordmark ? theme.textMuted : (props.ink ?? theme.text),
                 true,
+                undefined,
                 ctx.LEFT + GAP,
                 frame(),
                 dusk(),
                 idleState(),
               )}
             </box>
+            {props.forkWordmark ? (
+              <box flexDirection="row">
+                {renderLine(
+                  GUI[index()],
+                  index(),
+                  theme.primary,
+                  true,
+                  undefined,
+                  ctx.LEFT + GAP + (ctx.shape.right[index()]?.length ?? 0) + GAP,
+                  frame(),
+                  dusk(),
+                  idleState(),
+                )}
+              </box>
+            ) : undefined}
           </box>
         )}
       </For>

@@ -146,13 +146,7 @@ export const layer = Layer.effect(
           general: {
             name: "general",
             description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,
-            permission: Permission.merge(
-              defaults,
-              Permission.fromConfig({
-                todowrite: "deny",
-              }),
-              user,
-            ),
+            permission: Permission.merge(defaults, Permission.fromConfig({ taskqueue: "allow" }), user),
             options: {},
             mode: "subagent",
             native: true,
@@ -167,6 +161,7 @@ export const layer = Layer.effect(
                 glob: "allow",
                 list: "allow",
                 bash: "allow",
+                taskqueue: "allow",
                 webfetch: "allow",
                 websearch: "allow",
                 read: "allow",

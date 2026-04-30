@@ -67,6 +67,18 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
+export const TodoTaskPayload = Schema.Struct({
+  id: Schema.String,
+  agent: Schema.optional(Schema.String),
+})
+export const TodoCreatePayload = Schema.Struct({
+  content: Schema.String,
+  priority: Schema.optional(Todo.Priority),
+})
+export const TodoEditPayload = Schema.Struct({
+  id: Schema.String,
+  content: Schema.String,
+})
 
 export const SessionPaths = {
   list: root,
@@ -74,6 +86,10 @@ export const SessionPaths = {
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
   todo: `${root}/:sessionID/todo`,
+  todoCreate: `${root}/:sessionID/todo/create`,
+  todoEdit: `${root}/:sessionID/todo/edit`,
+  todoClaim: `${root}/:sessionID/todo/claim`,
+  todoClear: `${root}/:sessionID/todo/clear`,
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
@@ -152,6 +168,54 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.todo",
             summary: "Get session todos",
             description: "Retrieve the todo list associated with a specific session, showing tasks and action items.",
+          }),
+        ),
+        HttpApiEndpoint.post("todoCreate", SessionPaths.todoCreate, {
+          params: { sessionID: SessionID },
+          payload: TodoCreatePayload,
+          success: described(Schema.Array(Todo.Info), "Todo list"),
+          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.todoCreate",
+            summary: "Create todo task",
+            description: "Create a project-scoped task from the active session.",
+          }),
+        ),
+        HttpApiEndpoint.post("todoEdit", SessionPaths.todoEdit, {
+          params: { sessionID: SessionID },
+          payload: TodoEditPayload,
+          success: described(Schema.Array(Todo.Info), "Todo list"),
+          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.todoEdit",
+            summary: "Edit todo task",
+            description: "Edit a project-scoped task from the active session.",
+          }),
+        ),
+        HttpApiEndpoint.post("todoClaim", SessionPaths.todoClaim, {
+          params: { sessionID: SessionID },
+          payload: TodoTaskPayload,
+          success: described(Schema.Array(Todo.Info), "Todo list"),
+          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.todoClaim",
+            summary: "Claim todo task",
+            description: "Claim a project-scoped task from the active session.",
+          }),
+        ),
+        HttpApiEndpoint.post("todoClear", SessionPaths.todoClear, {
+          params: { sessionID: SessionID },
+          payload: TodoTaskPayload,
+          success: described(Schema.Array(Todo.Info), "Todo list"),
+          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.todoClear",
+            summary: "Clear todo task",
+            description: "Clear a project-scoped task from the active session.",
           }),
         ),
         HttpApiEndpoint.get("diff", SessionPaths.diff, {

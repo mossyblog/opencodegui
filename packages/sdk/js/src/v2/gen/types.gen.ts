@@ -309,17 +309,41 @@ export type EventQuestionRejected = {
 
 export type Todo = {
   /**
+   * Stable task identifier
+   */
+  id?: string
+  /**
    * Brief description of the task
    */
   content: string
   /**
-   * Current status of the task: pending, in_progress, completed, cancelled
+   * Current task status
    */
   status: string
   /**
-   * Priority level of the task: high, medium, low
+   * Priority level of the task
    */
   priority: string
+  /**
+   * Agent or session that created the task
+   */
+  createdBy?: string
+  /**
+   * Agent currently responsible for the task
+   */
+  claimedBy?: string
+  /**
+   * Unix timestamp when the task was claimed
+   */
+  claimedAt?: number
+  /**
+   * Agent that completed or cleared the task
+   */
+  completedBy?: string
+  /**
+   * Unix timestamp when the task was completed
+   */
+  completedAt?: number
 }
 
 export type EventTodoUpdated = {
@@ -1216,6 +1240,7 @@ export type PermissionConfig =
       list?: PermissionRuleConfig
       bash?: PermissionRuleConfig
       task?: PermissionRuleConfig
+      taskqueue?: PermissionActionConfig
       external_directory?: PermissionRuleConfig
       todowrite?: PermissionActionConfig
       question?: PermissionActionConfig
@@ -3563,6 +3588,154 @@ export type SessionTodoResponses = {
 }
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
+
+export type SessionTodoCreateData = {
+  body?: {
+    content: string
+    priority?: "high" | "medium" | "low"
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/todo/create"
+}
+
+export type SessionTodoCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTodoCreateError = SessionTodoCreateErrors[keyof SessionTodoCreateErrors]
+
+export type SessionTodoCreateResponses = {
+  /**
+   * Todo list
+   */
+  200: Array<Todo>
+}
+
+export type SessionTodoCreateResponse = SessionTodoCreateResponses[keyof SessionTodoCreateResponses]
+
+export type SessionTodoEditData = {
+  body?: {
+    id: string
+    content: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/todo/edit"
+}
+
+export type SessionTodoEditErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTodoEditError = SessionTodoEditErrors[keyof SessionTodoEditErrors]
+
+export type SessionTodoEditResponses = {
+  /**
+   * Todo list
+   */
+  200: Array<Todo>
+}
+
+export type SessionTodoEditResponse = SessionTodoEditResponses[keyof SessionTodoEditResponses]
+
+export type SessionTodoClaimData = {
+  body?: {
+    id: string
+    agent?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/todo/claim"
+}
+
+export type SessionTodoClaimErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTodoClaimError = SessionTodoClaimErrors[keyof SessionTodoClaimErrors]
+
+export type SessionTodoClaimResponses = {
+  /**
+   * Todo list
+   */
+  200: Array<Todo>
+}
+
+export type SessionTodoClaimResponse = SessionTodoClaimResponses[keyof SessionTodoClaimResponses]
+
+export type SessionTodoClearData = {
+  body?: {
+    id: string
+    agent?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/todo/clear"
+}
+
+export type SessionTodoClearErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTodoClearError = SessionTodoClearErrors[keyof SessionTodoClearErrors]
+
+export type SessionTodoClearResponses = {
+  /**
+   * Todo list
+   */
+  200: Array<Todo>
+}
+
+export type SessionTodoClearResponse = SessionTodoClearResponses[keyof SessionTodoClearResponses]
 
 export type SessionInitData = {
   body?: {

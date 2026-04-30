@@ -80,19 +80,25 @@ export const PartTable = sqliteTable(
 export const TodoTable = sqliteTable(
   "todo",
   {
-    session_id: text()
-      .$type<SessionID>()
+    id: text().notNull(),
+    project_id: text()
+      .$type<ProjectID>()
       .notNull()
-      .references(() => SessionTable.id, { onDelete: "cascade" }),
+      .references(() => ProjectTable.id, { onDelete: "cascade" }),
     content: text().notNull(),
     status: text().notNull(),
     priority: text().notNull(),
+    created_by: text(),
+    claimed_by: text(),
+    claimed_at: integer(),
+    completed_by: text(),
+    completed_at: integer(),
     position: integer().notNull(),
     ...Timestamps,
   },
   (table) => [
-    primaryKey({ columns: [table.session_id, table.position] }),
-    index("todo_session_idx").on(table.session_id),
+    primaryKey({ columns: [table.project_id, table.id] }),
+    index("todo_project_idx").on(table.project_id),
   ],
 )
 

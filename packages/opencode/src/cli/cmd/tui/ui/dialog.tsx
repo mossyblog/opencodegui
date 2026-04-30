@@ -9,7 +9,7 @@ import * as Selection from "@tui/util/selection"
 
 export function Dialog(
   props: ParentProps<{
-    size?: "medium" | "large" | "xlarge"
+    size?: "small" | "medium" | "large" | "xlarge"
     onClose: () => void
   }>,
 ) {
@@ -19,6 +19,7 @@ export function Dialog(
 
   let dismiss = false
   const width = () => {
+    if (props.size === "small") return Math.max(40, Math.floor(dimensions().width / 2))
     if (props.size === "xlarge") return 116
     if (props.size === "large") return 88
     return 60
@@ -68,7 +69,7 @@ function init() {
       element: JSX.Element
       onClose?: () => void
     }[],
-    size: "medium" as "medium" | "large" | "xlarge",
+    size: "medium" as "small" | "medium" | "large" | "xlarge",
   })
 
   const renderer = useRenderer()
@@ -141,7 +142,7 @@ function init() {
     get size() {
       return store.size
     },
-    setSize(size: "medium" | "large" | "xlarge") {
+    setSize(size: "small" | "medium" | "large" | "xlarge") {
       setStore("size", size)
     },
   }

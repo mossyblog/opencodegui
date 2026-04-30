@@ -90,6 +90,43 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* todoSvc.get(ctx.params.sessionID)
     })
 
+    const todoCreate = Effect.fn("SessionHttpApi.todoCreate")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: { content: string; priority?: Todo.Priority }
+    }) {
+      yield* todoSvc.create({
+        sessionID: ctx.params.sessionID,
+        content: ctx.payload.content,
+        priority: ctx.payload.priority ?? "medium",
+        createdBy: "user",
+      })
+      return yield* todoSvc.get(ctx.params.sessionID)
+    })
+
+    const todoEdit = Effect.fn("SessionHttpApi.todoEdit")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: { id: string; content: string }
+    }) {
+      yield* todoSvc.edit({ sessionID: ctx.params.sessionID, id: ctx.payload.id, content: ctx.payload.content })
+      return yield* todoSvc.get(ctx.params.sessionID)
+    })
+
+    const todoClaim = Effect.fn("SessionHttpApi.todoClaim")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: { id: string; agent?: string }
+    }) {
+      yield* todoSvc.complete({ sessionID: ctx.params.sessionID, id: ctx.payload.id, agent: ctx.payload.agent ?? "user" })
+      return yield* todoSvc.get(ctx.params.sessionID)
+    })
+
+    const todoClear = Effect.fn("SessionHttpApi.todoClear")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: { id: string; agent?: string }
+    }) {
+      yield* todoSvc.remove({ sessionID: ctx.params.sessionID, id: ctx.payload.id })
+      return yield* todoSvc.get(ctx.params.sessionID)
+    })
+
     const diff = Effect.fn("SessionHttpApi.diff")(function* (ctx: {
       params: { sessionID: SessionID }
       query: typeof DiffQuery.Type
@@ -540,6 +577,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("get", get)
       .handle("children", children)
       .handle("todo", todo)
+      .handle("todoCreate", todoCreate)
+      .handle("todoEdit", todoEdit)
+      .handle("todoClaim", todoClaim)
+      .handle("todoClear", todoClear)
       .handle("diff", diff)
       .handle("messages", messages)
       .handle("message", message)

@@ -346,11 +346,6 @@ describe("tool.task", () => {
           expect(child.parentID).toBe(chat.id)
           expect(child.permission).toEqual([
             {
-              permission: "todowrite",
-              pattern: "*",
-              action: "deny",
-            },
-            {
               permission: "bash",
               pattern: "*",
               action: "allow",
@@ -362,7 +357,6 @@ describe("tool.task", () => {
             },
           ])
           expect(seen?.tools).toEqual({
-            todowrite: false,
             bash: false,
             read: false,
           })

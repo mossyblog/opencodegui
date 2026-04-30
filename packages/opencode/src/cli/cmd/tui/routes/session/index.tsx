@@ -156,6 +156,7 @@ export function Session() {
   const dimensions = useTerminalDimensions()
   const [sidebar, setSidebar] = kv.signal<"auto" | "hide">("sidebar", "auto")
   const [sidebarOpen, setSidebarOpen] = createSignal(false)
+  const [sidebarTab, setSidebarTab] = createSignal<"general" | "tilldone" | "knowledge">("general")
   const [conceal, setConceal] = createSignal(true)
   const [showThinking, setShowThinking] = kv.signal("thinking_visibility", true)
   const [timestamps, setTimestamps] = kv.signal<"hide" | "show">("timestamps", "hide")
@@ -614,6 +615,25 @@ export function Session() {
           const isVisible = sidebarVisible()
           setSidebar(() => (isVisible ? "hide" : "auto"))
           setSidebarOpen(!isVisible)
+        })
+        dialog.clear()
+      },
+    },
+    {
+      title: "Open TillDone tab",
+      value: "session.tasks.show",
+      description: "Show the sidebar and switch to TillDone",
+      category: "TillDone",
+      suggested: true,
+      slash: {
+        name: "tasks",
+        aliases: ["task", "todo"],
+      },
+      onSelect: (dialog) => {
+        batch(() => {
+          setSidebar(() => "auto")
+          setSidebarOpen(true)
+          setSidebarTab("tilldone")
         })
         dialog.clear()
       },
@@ -1211,7 +1231,7 @@ export function Session() {
         <Show when={sidebarVisible()}>
           <Switch>
             <Match when={wide()}>
-              <Sidebar sessionID={route.sessionID} />
+              <Sidebar sessionID={route.sessionID} tab={sidebarTab()} setTab={setSidebarTab} />
             </Match>
             <Match when={!wide()}>
               <box
@@ -1223,7 +1243,7 @@ export function Session() {
                 alignItems="flex-end"
                 backgroundColor={RGBA.fromInts(0, 0, 0, 70)}
               >
-                <Sidebar sessionID={route.sessionID} />
+                <Sidebar sessionID={route.sessionID} tab={sidebarTab()} setTab={setSidebarTab} />
               </box>
             </Match>
           </Switch>
