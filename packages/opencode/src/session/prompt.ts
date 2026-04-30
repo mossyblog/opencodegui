@@ -1566,12 +1566,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       template = template.trim()
 
       const taskModel = yield* Effect.gen(function* () {
+        if (input.model) return Provider.parseModel(input.model)
         if (cmd.model) return Provider.parseModel(cmd.model)
         if (cmd.agent) {
           const cmdAgent = yield* agents.get(cmd.agent)
           if (cmdAgent?.model) return cmdAgent.model
         }
-        if (input.model) return Provider.parseModel(input.model)
         return yield* lastModel(input.sessionID)
       })
 
