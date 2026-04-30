@@ -78,6 +78,7 @@ export function fromRow(row: SessionRow): Info {
     path: row.path ?? undefined,
     parentID: row.parent_id ?? undefined,
     title: row.title,
+    agent: row.agent ?? undefined,
     version: row.version,
     summary,
     share,
@@ -102,6 +103,7 @@ export function toRow(info: Info) {
     directory: info.directory,
     path: info.path,
     title: info.title,
+    agent: info.agent,
     version: info.version,
     share_url: info.share?.url,
     summary_additions: info.summary?.additions,
@@ -167,6 +169,7 @@ export const Info = Schema.Struct({
   summary: optionalOmitUndefined(Summary),
   share: optionalOmitUndefined(Share),
   title: Schema.String,
+  agent: optionalOmitUndefined(Schema.String),
   version: Schema.String,
   time: Time,
   permission: optionalOmitUndefined(Permission.Ruleset),
@@ -197,6 +200,7 @@ export const CreateInput = Schema.optional(
   Schema.Struct({
     parentID: Schema.optional(SessionID),
     title: Schema.optional(Schema.String),
+    agent: Schema.optional(Schema.String),
     permission: Schema.optional(Permission.Ruleset),
     workspaceID: Schema.optional(WorkspaceID),
   }),
@@ -389,6 +393,7 @@ export interface Interface {
   readonly create: (input?: {
     parentID?: SessionID
     title?: string
+    agent?: string
     permission?: Permission.Ruleset
     workspaceID?: WorkspaceID
   }) => Effect.Effect<Info>
@@ -447,8 +452,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
-      title?: string
-      parentID?: SessionID
+    title?: string
+    agent?: string
+    parentID?: SessionID
       workspaceID?: WorkspaceID
       directory: string
       path?: string
@@ -465,6 +471,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         workspaceID: input.workspaceID,
         parentID: input.parentID,
         title: input.title ?? createDefaultTitle(!!input.parentID),
+        agent: input.agent,
         permission: input.permission,
         time: {
           created: Date.now(),
@@ -574,6 +581,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
     const create = Effect.fn("Session.create")(function* (input?: {
       parentID?: SessionID
       title?: string
+      agent?: string
       permission?: Permission.Ruleset
       workspaceID?: WorkspaceID
     }) {
@@ -584,6 +592,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         directory: ctx.directory,
         path: sessionPath(ctx.worktree, ctx.directory),
         title: input?.title,
+        agent: input?.agent,
         permission: input?.permission,
         workspaceID: workspace,
       })

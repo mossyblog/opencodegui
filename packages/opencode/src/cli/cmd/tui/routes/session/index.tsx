@@ -127,13 +127,30 @@ export function Session() {
   const { theme } = useTheme()
   const promptRef = usePromptRef()
   const session = createMemo(() => sync.session.get(route.sessionID))
+  const [feedSessionID, setFeedSessionID] = createSignal(route.sessionID)
+  const feedSession = createMemo(() => sync.session.get(feedSessionID()))
   const children = createMemo(() => {
     const parentID = session()?.parentID ?? session()?.id
     return sync.data.session
       .filter((x) => x.parentID === parentID || x.id === parentID)
       .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   })
-  const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+  const messages = createMemo(() => sync.data.message[feedSessionID()] ?? [])
+  const agentFeedSlots = createMemo(() => {
+    const childSessions = sync.data.session.filter((item) => item.parentID === route.sessionID)
+    return sync.data.agent
+      .filter((item) => item.mode === "subagent" && !item.hidden)
+      .map((agent) => {
+        const sessions = childSessions.filter((item) => {
+          const match = /^(.*) \(@(.+) subagent\)$/.exec(item.title)
+          return (item.agent ?? match?.[2]) === agent.name
+        })
+        return {
+          agent: agent.name,
+          session: sessions.find((item) => sync.session.status(item.id) !== "idle") ?? sessions.toSorted((a, b) => b.time.updated - a.time.updated)[0],
+        }
+      })
+  })
   const permissions = createMemo(() => {
     if (session()?.parentID) return []
     return children().flatMap((x) => sync.data.permission[x.id] ?? [])
@@ -294,6 +311,27 @@ export function Session() {
   })
 
   useKeyboard((evt) => {
+    if (evt.ctrl && evt.shift && /^[0-9]$/.test(evt.name)) {
+      evt.preventDefault()
+      evt.stopPropagation()
+      const slot = evt.name === "0" ? 10 : Number(evt.name)
+      const targetAgent = agentFeedSlots()[slot - 2]
+      void (async () => {
+        const created = slot !== 1 && targetAgent && !targetAgent.session
+          ? await sdk.client.session.create({
+              parentID: route.sessionID,
+              title: `${targetAgent.agent} (@${targetAgent.agent} subagent)`,
+              agent: targetAgent.agent,
+            })
+          : undefined
+        if (created?.data) sync.set("session", sync.data.session.length, created.data)
+        const target = slot === 1 ? route.sessionID : (targetAgent?.session?.id ?? created?.data?.id)
+        if (!target) return
+        setFeedSessionID(target)
+        void sync.session.sync(target)
+      })()
+      return
+    }
     if (!session()?.parentID) return
     if (keybind.match("app_exit", evt)) {
       void exit()
@@ -1055,6 +1093,7 @@ export function Session() {
 
   // snap to bottom when session changes
   createEffect(on(() => route.sessionID, toBottom))
+  createEffect(on(() => route.sessionID, (sessionID) => setFeedSessionID(sessionID)))
 
   return (
     <context.Provider
@@ -1062,7 +1101,7 @@ export function Session() {
         get width() {
           return contentWidth()
         },
-        sessionID: route.sessionID,
+        sessionID: feedSessionID(),
         conceal,
         showThinking,
         showTimestamps,
@@ -1076,7 +1115,7 @@ export function Session() {
     >
       <box flexDirection="row">
         <box flexGrow={1} paddingBottom={1} paddingLeft={2} paddingRight={2} gap={1}>
-          <Show when={session()}>
+          <Show when={feedSession()}>
             <scrollbox
               ref={(r) => (scroll = r)}
               viewportOptions={{
@@ -1171,7 +1210,7 @@ export function Session() {
                           dialog.replace(() => (
                             <DialogMessage
                               messageID={message.id}
-                              sessionID={route.sessionID}
+                              sessionID={feedSessionID()}
                               setPrompt={(promptInfo) => prompt?.set(promptInfo)}
                             />
                           ))
@@ -1231,7 +1270,16 @@ export function Session() {
         <Show when={sidebarVisible()}>
           <Switch>
             <Match when={wide()}>
-              <Sidebar sessionID={route.sessionID} tab={sidebarTab()} setTab={setSidebarTab} />
+              <Sidebar
+                sessionID={route.sessionID}
+                tab={sidebarTab()}
+                setTab={setSidebarTab}
+                feedSessionID={feedSessionID()}
+                setFeedSessionID={(sessionID) => {
+                  setFeedSessionID(sessionID)
+                  void sync.session.sync(sessionID)
+                }}
+              />
             </Match>
             <Match when={!wide()}>
               <box
@@ -1243,7 +1291,16 @@ export function Session() {
                 alignItems="flex-end"
                 backgroundColor={RGBA.fromInts(0, 0, 0, 70)}
               >
-                <Sidebar sessionID={route.sessionID} tab={sidebarTab()} setTab={setSidebarTab} />
+                <Sidebar
+                  sessionID={route.sessionID}
+                  tab={sidebarTab()}
+                  setTab={setSidebarTab}
+                  feedSessionID={feedSessionID()}
+                  setFeedSessionID={(sessionID) => {
+                    setFeedSessionID(sessionID)
+                    void sync.session.sync(sessionID)
+                  }}
+                />
               </box>
             </Match>
           </Switch>

@@ -74,6 +74,7 @@ export const TodoTaskPayload = Schema.Struct({
 export const TodoCreatePayload = Schema.Struct({
   content: Schema.String,
   priority: Schema.optional(Todo.Priority),
+  agent: Schema.optional(Schema.String),
 })
 export const TodoEditPayload = Schema.Struct({
   id: Schema.String,

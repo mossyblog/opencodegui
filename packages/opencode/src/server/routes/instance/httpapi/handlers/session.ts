@@ -92,13 +92,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const todoCreate = Effect.fn("SessionHttpApi.todoCreate")(function* (ctx: {
       params: { sessionID: SessionID }
-      payload: { content: string; priority?: Todo.Priority }
+      payload: { content: string; priority?: Todo.Priority; agent?: string }
     }) {
       yield* todoSvc.create({
         sessionID: ctx.params.sessionID,
         content: ctx.payload.content,
         priority: ctx.payload.priority ?? "medium",
-        createdBy: "user",
+        createdBy: ctx.payload.agent ?? "user",
       })
       return yield* todoSvc.get(ctx.params.sessionID)
     })

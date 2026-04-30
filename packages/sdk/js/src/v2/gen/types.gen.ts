@@ -972,6 +972,7 @@ export type Session = {
     url: string
   }
   title: string
+  agent?: string
   version: string
   time: {
     created: number
@@ -1920,6 +1921,7 @@ export type GlobalSession = {
     url: string
   }
   title: string
+  agent?: string
   version: string
   time: {
     created: number
@@ -3354,6 +3356,7 @@ export type SessionCreateData = {
   body?: {
     parentID?: string
     title?: string
+    agent?: string
     permission?: PermissionRuleset
     workspaceID?: string
   }
@@ -3593,6 +3596,7 @@ export type SessionTodoCreateData = {
   body?: {
     content: string
     priority?: "high" | "medium" | "low"
+    agent?: string
   }
   path: {
     sessionID: string

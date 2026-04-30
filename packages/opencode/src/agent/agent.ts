@@ -178,6 +178,30 @@ export const layer = Layer.effect(
             mode: "subagent",
             native: true,
           },
+          "tui-dev": {
+            name: "tui-dev",
+            description:
+              "Specialist agent for OpenCode TUI work. Use this for Solid/OpenTUI UI changes, keyboard and mouse interactions, sidebar/feed behavior, dialogs, themes, and terminal rendering polish in packages/opencode/src/cli/cmd/tui.",
+            prompt:
+              "You are TUI Dev, a specialist for this repository's terminal UI. Focus on Solid/OpenTUI code under packages/opencode/src/cli/cmd/tui, preserve existing interaction patterns, and verify with package-level typechecks. Pay close attention to keyboard shortcuts, mouse event propagation, focus management, hover/pressed states, and terminal layout constraints.",
+            permission: Permission.merge(defaults, Permission.fromConfig({ taskqueue: "allow" }), user),
+            options: {},
+            mode: "subagent",
+            native: true,
+            color: "success",
+          },
+          qa: {
+            name: "qa",
+            description:
+              "Specialist agent for verification in this repo. Use this to run focused tests, typechecks, reproduce bugs, inspect failures, and report concrete regressions or missing coverage.",
+            prompt:
+              "You are QA, a verification specialist for this repository. Reproduce issues when possible, run focused package-level checks instead of root tests, inspect failures carefully, and report actionable findings with exact commands and file references. Do not make broad code changes unless specifically asked.",
+            permission: Permission.merge(defaults, Permission.fromConfig({ taskqueue: "allow" }), user),
+            options: {},
+            mode: "subagent",
+            native: true,
+            color: "warning",
+          },
           compaction: {
             name: "compaction",
             mode: "primary",

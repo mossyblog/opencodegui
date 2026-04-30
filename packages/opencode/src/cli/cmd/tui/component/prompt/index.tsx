@@ -450,6 +450,34 @@ export function Prompt(props: PromptProps) {
           ))
         },
       },
+      {
+        title: "Agent task",
+        value: "prompt.agent-task",
+        category: "Prompt",
+        slash: {
+          name: "agent",
+        },
+        onSelect: (dialog) => {
+          dialog.clear()
+          input.setText("/agent ")
+          setStore("prompt", { input: "/agent ", parts: [] })
+          input.gotoBufferEnd()
+        },
+      },
+      {
+        title: "Specialist task",
+        value: "prompt.specialist-task",
+        category: "Prompt",
+        slash: {
+          name: "task",
+        },
+        onSelect: (dialog) => {
+          dialog.clear()
+          input.setText("/task ")
+          setStore("prompt", { input: "/task ", parts: [] })
+          input.gotoBufferEnd()
+        },
+      },
     ]
   })
 
@@ -738,6 +766,40 @@ export function Prompt(props: PromptProps) {
     const messageID = MessageID.ascending()
     let inputText = store.prompt.input
 
+    const parseSpecialist = (body: string) => {
+      const agents = sync.data.agent.filter((item) => item.mode === "subagent" && !item.hidden)
+      const pipe = body.indexOf("|")
+      const target = pipe === -1 ? body.split(/\s+/)[0] : body.slice(0, pipe).trim()
+      const prompt = pipe === -1 ? body.slice(target.length).trim() : body.slice(pipe + 1).trim()
+      if (!target || !prompt) return
+      const index = Number(target)
+      const selected = Number.isInteger(index) && index > 1
+        ? agents[index - 2]
+        : agents.find((item) => item.name === target || item.name.toLowerCase() === target.toLowerCase().replaceAll(" ", "-"))
+      if (!selected) {
+        toast.show({ message: `Agent not found: ${target}`, variant: "error" })
+        return false
+      }
+      return { agent: selected.name, prompt }
+    }
+
+    const taskAssignment = (() => {
+      const match = /^\/task\s+(.+)$/s.exec(inputText.trim())
+      if (!match) return
+      return parseSpecialist(match[1].trim())
+    })()
+    if (taskAssignment === false) return false
+
+    const specialistPrompt = (() => {
+      const match = /^\/agent\s+(.+)$/s.exec(inputText.trim())
+      if (!match) return
+      const parsed = parseSpecialist(match[1].trim())
+      if (!parsed) return parsed
+      return `Use the ${parsed.agent} specialist agent to do this work via the task tool.\n\nTask: ${parsed.prompt}`
+    })()
+    if (specialistPrompt === false) return false
+    if (specialistPrompt) inputText = specialistPrompt
+
     // Expand pasted text inline before submitting
     const allExtmarks = input.extmarks.getAllForTypeId(promptPartTypeId)
     const sortedExtmarks = allExtmarks.sort((a: { start: number }, b: { start: number }) => b.start - a.start)
@@ -794,7 +856,14 @@ export function Prompt(props: PromptProps) {
           ]
         : []
 
-    if (store.mode === "shell") {
+    if (taskAssignment) {
+      const result = await sdk.client.session.todoCreate({
+        sessionID,
+        content: taskAssignment.prompt,
+        agent: taskAssignment.agent,
+      })
+      if (result.error) toast.show({ message: "Could not create task.", variant: "error" })
+    } else if (store.mode === "shell") {
       void sdk.client.session.shell({
         sessionID,
         agent: agent.name,

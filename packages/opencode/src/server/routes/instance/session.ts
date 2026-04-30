@@ -43,6 +43,7 @@ const TodoTaskPayload = z.object({
 const TodoCreatePayload = z.object({
   content: z.string(),
   priority: z.enum(["high", "medium", "low"]).optional(),
+  agent: z.string().optional(),
 })
 
 const TodoEditPayload = z.object({
@@ -259,7 +260,7 @@ export const SessionRoutes = lazy(() =>
         const body = c.req.valid("json")
         return jsonRequest("SessionRoutes.todoCreate", c, function* () {
           const todo = yield* Todo.Service
-          yield* todo.create({ sessionID, content: body.content, priority: body.priority ?? "medium", createdBy: "user" })
+          yield* todo.create({ sessionID, content: body.content, priority: body.priority ?? "medium", createdBy: body.agent ?? "user" })
           return yield* todo.get(sessionID)
         })
       },

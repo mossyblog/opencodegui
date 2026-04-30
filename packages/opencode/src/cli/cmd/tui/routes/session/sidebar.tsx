@@ -19,7 +19,14 @@ import { getScrollAcceleration } from "../../util/scroll"
 type QueueTask = Todo & { id?: string; claimedBy?: string }
 type SidebarTab = "general" | "tilldone" | "knowledge"
 
-export function Sidebar(props: { sessionID: string; overlay?: boolean; tab?: SidebarTab; setTab?: (tab: SidebarTab) => void }) {
+export function Sidebar(props: {
+  sessionID: string
+  overlay?: boolean
+  tab?: SidebarTab
+  setTab?: (tab: SidebarTab) => void
+  feedSessionID?: string
+  setFeedSessionID?: (sessionID: string) => void
+}) {
   const project = useProject()
   const sdk = useSDK()
   const sync = useSync()
@@ -28,6 +35,43 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean; tab?: Sid
   const { theme } = useTheme()
   const tuiConfig = useTuiConfig()
   const session = createMemo(() => sync.session.get(props.sessionID))
+  const agentSessions = createMemo(() => {
+    const childSessions = sync.data.session.filter((item) => item.parentID === props.sessionID)
+    return sync.data.agent
+      .filter((item) => item.mode === "subagent" && !item.hidden)
+      .map((agent, index) => {
+        const sessions = childSessions.filter((item) => {
+          const match = /^(.*) \(@(.+) subagent\)$/.exec(item.title)
+          return (item.agent ?? match?.[2]) === agent.name
+        })
+        const running = sessions.find((item) => sync.session.status(item.id) !== "idle")
+        const latest = sessions.toSorted((a, b) => b.time.updated - a.time.updated)[0]
+        const active = running ?? latest
+        return {
+          id: active?.id,
+          slot: index + 2,
+          name: agent.name,
+          status: active ? sync.session.status(active.id) : "idle",
+          color: local.agent.color(agent.name),
+        }
+      })
+  })
+
+  const openAgent = async (agent: { id?: string; name: string }) => {
+    if (agent.id) {
+      props.setFeedSessionID?.(agent.id)
+      return
+    }
+    const created = await sdk.client.session.create({
+      parentID: props.sessionID,
+      title: `${agent.name} (@${agent.name} subagent)`,
+      agent: agent.name,
+    })
+    if (!created.data) return
+    sync.set("session", sync.data.session.length, created.data)
+    props.setFeedSessionID?.(created.data.id)
+    void sync.session.sync(created.data.id)
+  }
   const [store, setStore] = createStore({ tab: "general" as SidebarTab })
   const selectedTab = () => props.tab ?? store.tab
   const setSelectedTab = (tab: SidebarTab) => (props.setTab ? props.setTab(tab) : setStore("tab", tab))
@@ -148,9 +192,28 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean; tab?: Sid
             >
               <box paddingRight={1}>
                 <box gap={0} paddingBottom={1}>
-                  <AgentStatus name="TUI Dev" status="Idle" tone={theme.textMuted} />
-                  <AgentStatus name="QA" status="Running" tone={theme.success} />
-                  <AgentStatus name="Scribe" status="Idle" tone={theme.textMuted} />
+                    <AgentStatus
+                      slot={1}
+                      name="Main"
+                      status={props.feedSessionID === props.sessionID ? "Viewing" : "Idle"}
+                      tone={props.feedSessionID === props.sessionID ? theme.primary : theme.textMuted}
+                      color={local.agent.color(local.agent.current()?.name ?? "build")}
+                      active={props.feedSessionID === props.sessionID}
+                      onClick={() => props.setFeedSessionID?.(props.sessionID)}
+                    />
+                  <For each={agentSessions()}>
+                    {(agent) => (
+                      <AgentStatus
+                        slot={agent.slot}
+                          name={agent.name}
+                          status={agent.status === "working" ? "Running" : agent.status === "compacting" ? "Compacting" : "Idle"}
+                          tone={agent.status === "working" ? theme.success : agent.status === "compacting" ? theme.warning : theme.textMuted}
+                          color={agent.color}
+                          active={props.feedSessionID === agent.id}
+                          onClick={() => void openAgent(agent)}
+                        />
+                    )}
+                  </For>
                 </box>
                 <text fg={theme.text}>
                   <b>{session()!.title}</b>
@@ -223,11 +286,18 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean; tab?: Sid
   )
 }
 
-function AgentStatus(props: { name: string; status: string; tone: RGBA }) {
+function AgentStatus(props: { slot: number; name: string; status: string; tone: RGBA; color: RGBA; active: boolean; onClick: () => void }) {
   const { theme } = useTheme()
   return (
-    <box flexDirection="row" justifyContent="space-between">
-      <text fg={theme.textMuted}>{props.name}</text>
+    <box
+      flexDirection="row"
+      justifyContent="space-between"
+      backgroundColor={props.active ? theme.backgroundElement : undefined}
+      border={["left"]}
+      borderColor={props.color}
+      onMouseUp={props.onClick}
+    >
+      <text fg={props.active ? props.color : theme.textMuted}>{props.slot} {props.name}</text>
       <text fg={props.tone}>{props.status}</text>
     </box>
   )
