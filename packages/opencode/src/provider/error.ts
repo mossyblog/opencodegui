@@ -199,6 +199,39 @@ export type ParsedAPICallError =
       metadata?: Record<string, string>
     }
 
+const JSON_PARSE_FAILURE = /JSON (?:parsing failed|Parse error):?\s*(.*)/is
+const UNTERMINATED_JSON = /(?:SyntaxError:\s*)?(Unterminated string(?: in JSON)?(?: at (?:position \d+|line \d+(?: column \d+)?))?)/i
+const RAW_TEXT_MARKER = /Text:\s*/i
+
+function parseFailure(message: string) {
+  const marker = RAW_TEXT_MARKER.exec(message)
+  const single = (marker ? message.slice(0, marker.index) : message).split("\n", 1)[0]?.trim()
+  if (!single) return
+  return UNTERMINATED_JSON.exec(single)?.[1] ?? single
+}
+
+export function parseGenericError(input: { providerID: ProviderID; error: Error }): ParsedAPICallError | undefined {
+  const match = JSON_PARSE_FAILURE.exec(input.error.message)
+  const parseError = match ? parseFailure(match[1] ?? "") : UNTERMINATED_JSON.exec(input.error.message)?.[1]
+  if (!match && !parseError) return
+
+  const marker = RAW_TEXT_MARKER.exec(input.error.message)
+  const response = marker ? input.error.message.slice(marker.index + marker[0].length) : input.error.message
+  return {
+    type: "api_error",
+    message: "Provider stream returned malformed JSON (unterminated response event).",
+    isRetryable: true,
+    responseBody: preview(response),
+    metadata: {
+      provider: input.providerID,
+      cause: "malformed_stream_json",
+      ...(parseError ? { parseError } : {}),
+      responseBytes: String(response.length),
+      responsePreview: preview(response),
+    },
+  }
+}
+
 export function parseAPICallError(input: { providerID: ProviderID; error: APICallError }): ParsedAPICallError {
   const m = message(input.providerID, input.error)
   const body = json(input.error.responseBody)

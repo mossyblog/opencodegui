@@ -13,6 +13,7 @@ const TodoItem = Schema.Struct({
     description: "Current status of the task: pending, in_progress, completed, cancelled",
   }),
   priority: Schema.String.annotate({ description: "Priority level of the task: high, medium, low" }),
+  assignedAgent: Schema.optional(Schema.String).annotate({ description: "Agent assigned to the task" }),
 })
 
 export const Parameters = Schema.Struct({

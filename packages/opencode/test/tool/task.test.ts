@@ -313,6 +313,80 @@ describe("tool.task", () => {
     ),
   )
 
+  it.live("execute appends decisions-made entries to the orchestration diary", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        const text = [
+          "Reviewed the task implementation.",
+          "",
+          "## Decisions made:",
+          "- Kept diary capture inside task orchestration so it runs after the subagent response is returned.",
+          "- Limited captured notes to explicit decisions sections to avoid logging routine status output.",
+          "",
+          "Verification:",
+          "- not run",
+        ].join("\n")
+
+        yield* def.execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: stubOps({ text }) },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        const diary = yield* Effect.promise(() => Bun.file(`${dir}/.opencode/diary/${new Date().toISOString().slice(0, 10)}.md`).text())
+        expect(diary).toContain("Kept diary capture inside task orchestration so it runs after the subagent response is returned.")
+        expect(diary).toContain("Limited captured notes to explicit decisions sections to avoid logging routine status output.")
+        expect(diary).not.toContain("Verification")
+      }),
+    ),
+  )
+
+  it.live("execute skips diary entries when no meaningful decisions are returned", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+
+        yield* def.execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: stubOps({ text: "Decisions made:\n- No meaningful decisions." }) },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        const exists = yield* Effect.promise(() => Bun.file(`${dir}/.opencode/diary/${new Date().toISOString().slice(0, 10)}.md`).exists())
+        expect(exists).toBe(false)
+      }),
+    ),
+  )
+
   it.live("execute shapes child permissions for task, todowrite, and primary tools", () =>
     provideTmpdirInstance(
       () =>

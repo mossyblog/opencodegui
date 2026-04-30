@@ -9,12 +9,21 @@ import { useRouteData } from "@tui/context/route"
 import { usePromptRef } from "../context/prompt"
 import { useLocal } from "../context/local"
 import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
-import { readFileSync } from "fs"
-import path from "path"
 
-const ForkLogo = readFileSync(path.join(import.meta.dirname, "../../../../../../../logo.md"), "utf8")
-  .trimEnd()
-  .split(/\r?\n/)
+const ForkLogo = [
+  "       ,-.-.-.-,",
+  "        )     (",
+  "        |     |",
+  "        |_    |",
+  "       /(_)---`\\",
+  "      (_      -'",
+  "       ]      |",
+  "       |    _,')",
+  "       [_,-'_-'(",
+  "      (_).-'    \\",
+  "     / /         .",
+  "   R.I.P Scott Adams.",
+]
 const ForkLogoShape = {
   left: ForkLogo,
   right: ForkLogo.map(() => ""),

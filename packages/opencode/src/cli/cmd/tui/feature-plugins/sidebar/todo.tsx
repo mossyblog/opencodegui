@@ -10,6 +10,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const list = createMemo(() => props.api.state.session.todo(props.session_id))
   const collapsed = createMemo(() => props.api.kv.get(collapsedKey, false))
   const show = createMemo(() => list().length > 0 && list().some((item) => item.status !== "completed"))
+  const assignedAgent = (item: ReturnType<typeof list>[number]) => ("assignedAgent" in item && typeof item.assignedAgent === "string" ? item.assignedAgent : undefined)
 
   return (
     <Show when={show()}>
@@ -21,7 +22,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
           </text>
         </box>
         <Show when={!collapsed()}>
-          <For each={list()}>{(item) => <TodoItem status={item.status} content={item.content} />}</For>
+          <For each={list()}>{(item) => <TodoItem status={item.status} content={item.content} assignedAgent={assignedAgent(item)} />}</For>
         </Show>
       </box>
     </Show>

@@ -129,6 +129,7 @@ export const layer = Layer.effect(
               Permission.fromConfig({
                 question: "allow",
                 plan_exit: "allow",
+                taskqueue: "allow",
                 external_directory: {
                   [path.join(Global.Path.data, "plans", "*")]: "allow",
                 },
@@ -195,7 +196,7 @@ export const layer = Layer.effect(
             description:
               "Specialist agent for verification in this repo. Use this to run focused tests, typechecks, reproduce bugs, inspect failures, and report concrete regressions or missing coverage.",
             prompt:
-              "You are QA, a verification specialist for this repository. Reproduce issues when possible, run focused package-level checks instead of root tests, inspect failures carefully, and report actionable findings with exact commands and file references. Do not make broad code changes unless specifically asked.",
+              "You are QA, a verification specialist for this repository. Reproduce issues when possible, run focused package-level checks instead of root tests, inspect failures carefully, and report actionable findings with exact commands and file references. When validating completed agent work, decide whether the change warrants a test request, especially for medium/high-complexity work or behavior prone to regressions. Request missing focused coverage from the implementation agent when appropriate instead of accepting untested behavior or fixing it directly. Do not make broad code changes unless specifically asked.",
             permission: Permission.merge(defaults, Permission.fromConfig({ taskqueue: "allow" }), user),
             options: {},
             mode: "subagent",

@@ -325,6 +325,18 @@ export type Todo = {
    */
   priority: string
   /**
+   * Agent assigned to the task
+   */
+  assignedAgent?: string
+  /**
+   * QA/dev handoff count for this task
+   */
+  bounceCount?: number
+  /**
+   * Simple timestamped lifecycle history
+   */
+  history?: string
+  /**
    * Agent or session that created the task
    */
   createdBy?: string
@@ -1975,6 +1987,25 @@ export type CodexQuotaInfo = {
   error?: string
 }
 
+export type TillDoneWorkerInfo = {
+  agent: string
+  status: string
+  taskID?: string
+  sessionID?: string
+  error?: string
+  startedAt?: number
+}
+
+export type TillDoneStatus = {
+  status: "idle" | "running" | "stopping" | "aborting" | "complete" | "blocked" | "error"
+  sessionID?: string
+  active: number
+  maxWorkers: number
+  startedAt?: number
+  stoppedAt?: number
+  workers: Array<TillDoneWorkerInfo>
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -3472,6 +3503,142 @@ export type SessionCodexQuotaResponses = {
 
 export type SessionCodexQuotaResponse = SessionCodexQuotaResponses[keyof SessionCodexQuotaResponses]
 
+export type SessionTilldoneStatusData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/tilldone/status"
+}
+
+export type SessionTilldoneStatusErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTilldoneStatusError = SessionTilldoneStatusErrors[keyof SessionTilldoneStatusErrors]
+
+export type SessionTilldoneStatusResponses = {
+  /**
+   * TillDone runner status
+   */
+  200: TillDoneStatus
+}
+
+export type SessionTilldoneStatusResponse = SessionTilldoneStatusResponses[keyof SessionTilldoneStatusResponses]
+
+export type SessionTilldoneStartData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/tilldone/start"
+}
+
+export type SessionTilldoneStartErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTilldoneStartError = SessionTilldoneStartErrors[keyof SessionTilldoneStartErrors]
+
+export type SessionTilldoneStartResponses = {
+  /**
+   * TillDone runner status
+   */
+  200: TillDoneStatus
+}
+
+export type SessionTilldoneStartResponse = SessionTilldoneStartResponses[keyof SessionTilldoneStartResponses]
+
+export type SessionTilldoneStopData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/tilldone/stop"
+}
+
+export type SessionTilldoneStopErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTilldoneStopError = SessionTilldoneStopErrors[keyof SessionTilldoneStopErrors]
+
+export type SessionTilldoneStopResponses = {
+  /**
+   * TillDone runner status
+   */
+  200: TillDoneStatus
+}
+
+export type SessionTilldoneStopResponse = SessionTilldoneStopResponses[keyof SessionTilldoneStopResponses]
+
+export type SessionTilldoneAbortData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/tilldone/abort"
+}
+
+export type SessionTilldoneAbortErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTilldoneAbortError = SessionTilldoneAbortErrors[keyof SessionTilldoneAbortErrors]
+
+export type SessionTilldoneAbortResponses = {
+  /**
+   * TillDone runner status
+   */
+  200: TillDoneStatus
+}
+
+export type SessionTilldoneAbortResponse = SessionTilldoneAbortResponses[keyof SessionTilldoneAbortResponses]
+
 export type SessionDeleteData = {
   body?: never
   path: {
@@ -3653,6 +3820,7 @@ export type SessionTodoCreateData = {
     content: string
     priority?: "high" | "medium" | "low"
     agent?: string
+    assignedAgent?: string
   }
   path: {
     sessionID: string
@@ -3690,6 +3858,7 @@ export type SessionTodoEditData = {
   body?: {
     id: string
     content: string
+    assignedAgent?: string | null
   }
   path: {
     sessionID: string

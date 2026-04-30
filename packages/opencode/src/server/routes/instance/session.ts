@@ -14,7 +14,9 @@ import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { CodexQuota } from "@/codex/quota"
+import { TillDoneRunner } from "@/session/tilldone-runner"
 import { Effect } from "effect"
+import { AppRuntime } from "@/effect/app-runtime"
 import { Agent } from "@/agent/agent"
 import { Snapshot } from "@/snapshot"
 import { Command } from "@/command"
@@ -45,11 +47,13 @@ const TodoCreatePayload = z.object({
   content: z.string(),
   priority: z.enum(["high", "medium", "low"]).optional(),
   agent: z.string().optional(),
+  assignedAgent: z.string().optional(),
 })
 
 const TodoEditPayload = z.object({
   id: z.string(),
   content: z.string(),
+  assignedAgent: z.string().nullable().optional(),
 })
 
 function queryBoolean(value: z.infer<typeof QueryBoolean> | undefined) {
@@ -155,6 +159,98 @@ export const SessionRoutes = lazy(() =>
         jsonRequest("SessionRoutes.codexQuota", c, function* () {
           return yield* CodexQuota.Service.use((quota) => quota.read()).pipe(Effect.provide(CodexQuota.defaultLayer))
         }),
+    )
+    .get(
+      "/:sessionID/tilldone/status",
+      describeRoute({
+        summary: "Get TillDone runner status",
+        description: "Retrieve the current project-scoped TillDone orchestration runner status.",
+        operationId: "session.tilldoneStatus",
+        responses: {
+          200: {
+            description: "TillDone runner status",
+            content: { "application/json": { schema: resolver(zodObject(TillDoneRunner.Status)) } },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        return jsonRequest("SessionRoutes.tilldoneStatus", c, function* () {
+          return yield* TillDoneRunner.Service.use((runner) => runner.status({ sessionID }))
+        })
+      },
+    )
+    .post(
+      "/:sessionID/tilldone/start",
+      describeRoute({
+        summary: "Start TillDone runner",
+        description: "Start the project-scoped TillDone orchestration loop.",
+        operationId: "session.tilldoneStart",
+        responses: {
+          200: {
+            description: "TillDone runner status",
+            content: { "application/json": { schema: resolver(zodObject(TillDoneRunner.Status)) } },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const status = await runRequest(
+          "SessionRoutes.tilldoneStart",
+          c,
+          TillDoneRunner.Service.use((runner) => runner.start({ sessionID })),
+        )
+        AppRuntime.runFork(TillDoneRunner.Service.use((runner) => runner.run({ sessionID })))
+        return c.json(status)
+      },
+    )
+    .post(
+      "/:sessionID/tilldone/stop",
+      describeRoute({
+        summary: "Stop TillDone runner",
+        description: "Request a graceful TillDone stop. Running workers finish; no new work is claimed.",
+        operationId: "session.tilldoneStop",
+        responses: {
+          200: {
+            description: "TillDone runner status",
+            content: { "application/json": { schema: resolver(zodObject(TillDoneRunner.Status)) } },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        return jsonRequest("SessionRoutes.tilldoneStop", c, function* () {
+          return yield* TillDoneRunner.Service.use((runner) => runner.stop({ sessionID }))
+        })
+      },
+    )
+    .post(
+      "/:sessionID/tilldone/abort",
+      describeRoute({
+        summary: "Abort TillDone runner",
+        description: "Abort running TillDone workers and mark active tasks interrupted.",
+        operationId: "session.tilldoneAbort",
+        responses: {
+          200: {
+            description: "TillDone runner status",
+            content: { "application/json": { schema: resolver(zodObject(TillDoneRunner.Status)) } },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        return jsonRequest("SessionRoutes.tilldoneAbort", c, function* () {
+          return yield* TillDoneRunner.Service.use((runner) => runner.abort({ sessionID }))
+        })
+      },
     )
     .get(
       "/:sessionID",
@@ -284,7 +380,7 @@ export const SessionRoutes = lazy(() =>
         const body = c.req.valid("json")
         return jsonRequest("SessionRoutes.todoCreate", c, function* () {
           const todo = yield* Todo.Service
-          yield* todo.create({ sessionID, content: body.content, priority: body.priority ?? "medium", createdBy: body.agent ?? "user" })
+          yield* todo.create({ sessionID, content: body.content, priority: body.priority ?? "medium", createdBy: body.agent ?? "user", assignedAgent: body.assignedAgent })
           return yield* todo.get(sessionID)
         })
       },
@@ -319,7 +415,7 @@ export const SessionRoutes = lazy(() =>
         const body = c.req.valid("json")
         return jsonRequest("SessionRoutes.todoEdit", c, function* () {
           const todo = yield* Todo.Service
-          yield* todo.edit({ sessionID, id: body.id, content: body.content })
+          yield* todo.edit({ sessionID, id: body.id, content: body.content, assignedAgent: body.assignedAgent })
           return yield* todo.get(sessionID)
         })
       },
@@ -354,7 +450,7 @@ export const SessionRoutes = lazy(() =>
         const body = c.req.valid("json")
         return jsonRequest("SessionRoutes.todoClaim", c, function* () {
           const todo = yield* Todo.Service
-          yield* todo.complete({ sessionID, id: body.id, agent: body.agent ?? "user" })
+          yield* todo.claim({ sessionID, id: body.id, agent: body.agent ?? "user" })
           return yield* todo.get(sessionID)
         })
       },

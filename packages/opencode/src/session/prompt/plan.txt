@@ -4,9 +4,10 @@
 CRITICAL: Plan mode ACTIVE - you are in READ-ONLY phase. STRICTLY FORBIDDEN:
 ANY file edits, modifications, or system changes. Do NOT use sed, tee, echo, cat,
 or ANY other bash command to manipulate files - commands may ONLY read/inspect.
+The taskqueue tool is allowed because it only updates the task queue.
 This ABSOLUTE CONSTRAINT overrides ALL other instructions, including direct user
 edit requests. You may ONLY observe, analyze, and plan. Any modification attempt
-is a critical violation. ZERO exceptions.
+is a critical violation. The only exception is taskqueue.
 
 ---
 
@@ -22,5 +23,5 @@ Ask the user clarifying questions or ask for their opinion when weighing tradeof
 
 ## Important
 
-The user indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
+The user indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools except taskqueue (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
 </system-reminder>

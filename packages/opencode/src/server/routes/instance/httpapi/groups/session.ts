@@ -75,10 +75,12 @@ export const TodoCreatePayload = Schema.Struct({
   content: Schema.String,
   priority: Schema.optional(Todo.Priority),
   agent: Schema.optional(Schema.String),
+  assignedAgent: Schema.optional(Schema.String),
 })
 export const TodoEditPayload = Schema.Struct({
   id: Schema.String,
   content: Schema.String,
+  assignedAgent: Schema.optional(Schema.NullOr(Schema.String)),
 })
 
 export const SessionPaths = {

@@ -92,22 +92,23 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const todoCreate = Effect.fn("SessionHttpApi.todoCreate")(function* (ctx: {
       params: { sessionID: SessionID }
-      payload: { content: string; priority?: Todo.Priority; agent?: string }
+      payload: { content: string; priority?: Todo.Priority; agent?: string; assignedAgent?: string }
     }) {
       yield* todoSvc.create({
         sessionID: ctx.params.sessionID,
         content: ctx.payload.content,
         priority: ctx.payload.priority ?? "medium",
         createdBy: ctx.payload.agent ?? "user",
+        assignedAgent: ctx.payload.assignedAgent,
       })
       return yield* todoSvc.get(ctx.params.sessionID)
     })
 
     const todoEdit = Effect.fn("SessionHttpApi.todoEdit")(function* (ctx: {
       params: { sessionID: SessionID }
-      payload: { id: string; content: string }
+      payload: { id: string; content: string; assignedAgent?: string | null }
     }) {
-      yield* todoSvc.edit({ sessionID: ctx.params.sessionID, id: ctx.payload.id, content: ctx.payload.content })
+      yield* todoSvc.edit({ sessionID: ctx.params.sessionID, id: ctx.payload.id, content: ctx.payload.content, assignedAgent: ctx.payload.assignedAgent })
       return yield* todoSvc.get(ctx.params.sessionID)
     })
 
@@ -115,7 +116,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: { id: string; agent?: string }
     }) {
-      yield* todoSvc.complete({ sessionID: ctx.params.sessionID, id: ctx.payload.id, agent: ctx.payload.agent ?? "user" })
+      yield* todoSvc.claim({ sessionID: ctx.params.sessionID, id: ctx.payload.id, agent: ctx.payload.agent ?? "user" })
       return yield* todoSvc.get(ctx.params.sessionID)
     })
 

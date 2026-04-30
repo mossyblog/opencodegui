@@ -8,5 +8,16 @@ Actions:
 - claim_next: Claim the next pending task for the current agent.
 - complete: Mark a task complete by id.
 - cancel: Mark a task cancelled by id.
+- reassign: Change the assigned agent for a task by id.
 
-When claiming or completing work, read the returned next task and continue with it unless the user has asked you to stop.
+Tasks may include an assigned agent. When creating tasks, set assigned_agent when the best owner is known; otherwise the tool will infer one for common TUI, docs, verification, build-system, and general implementation work. Build is reserved for build-system work only; implementation tasks assigned to build are routed to the best non-build agent instead.
+
+In plan mode, only create and list are allowed. Plan mode cannot claim, complete, or cancel queued work because those actions start or close execution.
+
+Agents must work one task at a time. Claim exactly one task, finish or cancel that task, then claim the next task. Do not accept or work from a batch of task descriptions handed to you up front. Agents must not run full repo builds; perform the requested work with focused tests or package-level checks and leave repo build work to Build.
+
+The tool will refuse to give an agent another task while it already has a claimed task. After completing or cancelling work, call claim_next again if you should continue. Do not complete or cancel a queued task unless you claimed it first.
+
+When a non-QA agent completes a task, the tool automatically creates a follow-up validation task assigned to qa. QA must validate the completed work against the original task and must not fix issues directly. If QA finds issues, QA should create a new task assigned to the original agent with the concrete findings and reproduction/verification notes, then complete the QA task.
+
+Orchestrators should dispatch independent assigned agents in parallel with one task call per available agent wherever safe; build work must not block subagents from claiming and working unrelated tasks. Orchestrators should append 1-2 sentence decisions-made entries to `.opencode/diary/<date>.md` only when returned agent work included meaningful decisions.

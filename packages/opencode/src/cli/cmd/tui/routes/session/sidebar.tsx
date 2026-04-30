@@ -1,10 +1,12 @@
 import { TextareaRenderable } from "@opentui/core"
 import type { MouseEvent as TuiMouseEvent, RGBA } from "@opentui/core"
+import { readdir, readFile } from "node:fs/promises"
+import path from "node:path"
 import { useProject } from "@tui/context/project"
 import { useSDK } from "@tui/context/sdk"
 import { useSync } from "@tui/context/sync"
 import { useLocal } from "@tui/context/local"
-import { createEffect, createMemo, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useTheme } from "../../context/theme"
 import { useTuiConfig } from "../../context/tui-config"
@@ -13,11 +15,14 @@ import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import type { Todo } from "@opencode-ai/sdk/v2"
 import { useDialog } from "../../ui/dialog"
 import { useKeyboard } from "@opentui/solid"
+import "opentui-spinner/solid"
+import { spinnerFrames } from "../../component/spinner"
 
 import { getScrollAcceleration } from "../../util/scroll"
 
-type QueueTask = Todo & { id?: string; claimedBy?: string }
+type QueueTask = Todo & { id?: string; assignedAgent?: string; claimedBy?: string }
 type SidebarTab = "general" | "tilldone" | "knowledge"
+type DiaryEntry = { date: string; content: string }
 
 export function Sidebar(props: {
   sessionID: string
@@ -38,7 +43,7 @@ export function Sidebar(props: {
   const agentSessions = createMemo(() => {
     const childSessions = sync.data.session.filter((item) => item.parentID === props.sessionID)
     return sync.data.agent
-      .filter((item) => item.mode === "subagent" && !item.hidden)
+      .filter((item) => (item.mode === "subagent" || item.name === "build") && !item.hidden)
       .map((agent, index) => {
         const sessions = childSessions.filter((item) => {
           const match = /^(.*) \(@(.+) subagent\)$/.exec(item.title)
@@ -78,11 +83,12 @@ export function Sidebar(props: {
   const todos = createMemo(() => (sync.data.todo[props.sessionID] ?? []) as QueueTask[])
   const todoTasks = createMemo(() => todos().filter((item) => item.status !== "completed" && item.status !== "cancelled"))
   const doneTasks = createMemo(() => todos().filter((item) => item.status === "completed" || item.status === "cancelled"))
+  const [runner, setRunner] = createSignal<{ status: string; active: number; maxWorkers: number }>()
   const tabColor = (value: SidebarTab) => (value === "tilldone" ? theme.warning : local.agent.color(local.agent.current()?.name ?? "build"))
-  const createTask = async (content: string) => {
+  const createTask = async (content: string, assignedAgent?: string) => {
     const trimmed = content.trim()
     if (!trimmed) return
-    const result = await sdk.client.session.todoCreate({ sessionID: props.sessionID, content: trimmed })
+    const result = await sdk.client.session.todoCreate({ sessionID: props.sessionID, content: trimmed, assignedAgent })
     sync.set("todo", props.sessionID, result.data ?? [])
     dialog.clear()
   }
@@ -97,11 +103,20 @@ export function Sidebar(props: {
     sync.set("todo", props.sessionID, result.data ?? [])
     dialog.clear()
   }
-  const saveTask = async (item: QueueTask, content: string) => {
+  const saveTask = async (item: QueueTask, content: string, assignedAgent: string | null) => {
     if (!item.id) return
-    const result = await sdk.client.session.todoEdit({ sessionID: props.sessionID, id: item.id, content: content.trim() })
+    const result = await sdk.client.session.todoEdit({ sessionID: props.sessionID, id: item.id, content: content.trim(), assignedAgent })
     sync.set("todo", props.sessionID, result.data ?? [])
     dialog.clear()
+  }
+  const clearDoneTasks = async () => {
+    await doneTasks()
+      .filter((item) => item.id)
+      .reduce(async (previous, item) => {
+        await previous
+        const result = await sdk.client.session.todoClear({ sessionID: props.sessionID, id: item.id! })
+        sync.set("todo", props.sessionID, result.data ?? [])
+      }, Promise.resolve())
   }
   const workspaceStatus = () => {
     const workspaceID = session()?.workspaceID
@@ -116,6 +131,41 @@ export function Sidebar(props: {
     return `${info.type}: ${info.name}`
   }
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
+  const tilldone = async (action: "status" | "start" | "stop" | "abort") => {
+    const result = await (action === "status"
+      ? sdk.client.session.tilldoneStatus({ sessionID: props.sessionID })
+      : action === "start"
+        ? sdk.client.session.tilldoneStart({ sessionID: props.sessionID })
+        : action === "stop"
+          ? sdk.client.session.tilldoneStop({ sessionID: props.sessionID })
+          : sdk.client.session.tilldoneAbort({ sessionID: props.sessionID }))
+    if (result.data) setRunner(result.data)
+  }
+
+  createEffect(() => {
+    if (selectedTab() !== "tilldone") return
+    void tilldone("status")
+    const timer = setInterval(() => void tilldone("status"), 1000)
+    onCleanup(() => clearInterval(timer))
+  })
+  const [diaryEntries] = createResource(
+    () => project.instance.directory(),
+    async (directory) => {
+      if (!directory) return []
+      const diary = path.join(directory, ".opencode", "diary")
+      const entries = await Promise.all(
+        (await readdir(diary).catch(() => []))
+          .filter((file) => file.endsWith(".md"))
+          .toSorted((a, b) => b.localeCompare(a))
+          .map(async (file) => {
+            const content = await readFile(path.join(diary, file), "utf8").catch(() => undefined)
+            if (!content?.trim()) return undefined
+            return { date: file.replace(/\.md$/, ""), content: content.trim() }
+          }),
+      )
+      return entries.filter((entry): entry is DiaryEntry => !!entry)
+    },
+  )
 
   const tab = (value: SidebarTab, label: string) => (
     <box
@@ -132,8 +182,22 @@ export function Sidebar(props: {
     </box>
   )
 
+  const truncateTask = (content: string) => (content.length > 32 ? content.slice(0, 29) + "..." : content)
+
+  const planColor = () => local.agent.color("plan")
+  const isTodoQaTask = (item: QueueTask) => item.status === "pending" && item.assignedAgent === "qa"
+  const taskColor = (item: QueueTask) =>
+    item.status === "in_progress" || item.status === "claimed"
+      ? theme.success
+      : item.status === "completed" || item.status === "cancelled"
+        ? theme.textMuted
+        : isTodoQaTask(item)
+          ? theme.markdownLink
+        : planColor()
+
   const taskLine = (item: QueueTask) => (
     <box
+      flexDirection="row"
       gap={0}
       paddingLeft={1}
       onMouseUp={(event) => {
@@ -142,21 +206,42 @@ export function Sidebar(props: {
         dialog.setSize("small")
       }}
     >
-      <text fg={item.status === "in_progress" || item.status === "claimed" ? theme.warning : theme.textMuted}>
-        {item.status === "completed" ? "[✓]" : item.status === "cancelled" ? "[x]" : "[ ]"} {item.content}
+      <box width={4} flexShrink={0}>
+        <Show when={item.status === "in_progress" || item.status === "claimed"} fallback={<text fg={taskColor(item)}>{item.status === "completed" ? "[✓]" : item.status === "cancelled" ? "[x]" : "[ ]"}</text>}>
+          <box flexDirection="row">
+            <text fg={taskColor(item)}>[</text>
+            <spinner frames={spinnerFrames} interval={80} color={taskColor(item)} />
+            <text fg={taskColor(item)}>]</text>
+          </box>
+        </Show>
+      </box>
+      <text fg={taskColor(item)} wrapMode="none" overflow="hidden" flexGrow={1}>
+        {truncateTask(item.content)}
       </text>
-      <Show when={item.claimedBy}>
-        <text fg={theme.textMuted}>claimed: {item.claimedBy}</text>
-      </Show>
     </box>
   )
 
-  const taskSection = (title: string, items: ReturnType<typeof todos>) => (
+  const taskSection = (title: string, items: ReturnType<typeof todos>, action?: () => void) => (
     <Show when={items.length > 0}>
       <box gap={0}>
-        <text fg={theme.text}>
-          <b>{title}</b> <span style={{ fg: theme.textMuted }}>{items.length}</span>
-        </text>
+        <box flexDirection="row" gap={1} alignItems="center">
+          <Show when={action}>
+            {(run) => (
+              <Button
+                label="🗑"
+                fg={theme.error}
+                bg={theme.backgroundElement}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  run()()
+                }}
+              />
+            )}
+          </Show>
+          <text fg={theme.text}>
+            <b>{title}</b> <span style={{ fg: theme.textMuted }}>{items.length}</span>
+          </text>
+        </box>
         <For each={items}>{taskLine}</For>
       </box>
     </Show>
@@ -218,7 +303,7 @@ export function Sidebar(props: {
                   </For>
                 </box>
                 <text fg={theme.text}>
-                  <b>{session()!.title}</b>
+                  <b>Session: {session()!.title}</b>
                 </text>
                 <Show when={session()!.workspaceID}>
                   <text fg={theme.textMuted}>
@@ -239,28 +324,54 @@ export function Sidebar(props: {
             <Switch>
               <Match when={selectedTab() === "tilldone"}>
                 <box gap={1}>
-                  <box flexDirection="row" justifyContent="space-between">
-                    <text fg={theme.text}>
-                      <b>TillDone</b>
-                    </text>
-                    <Button
-                      label="[+] New Task"
-                      fg={theme.text}
-                      bg={theme.backgroundElement}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        dialog.replace(() => <NewTaskDialog onClose={() => dialog.clear()} onSave={createTask} />)
-                        dialog.setSize("small")
-                      }}
-                    />
+                  <box flexDirection="row" justifyContent="space-between" alignItems="center">
+                    <box flexDirection="row" gap={1}>
+                      <text fg={theme.text}>
+                        <b>TillDone</b>
+                      </text>
+                      <text fg={runner()?.status === "running" ? theme.success : theme.textMuted}>{runner()?.status ?? "idle"}</text>
+                      <text fg={theme.textMuted}>
+                        {runner()?.active ?? 0}/{runner()?.maxWorkers ?? 3}
+                      </text>
+                    </box>
+                    <box flexDirection="row" gap={1}>
+                      <Button
+                        label={runner()?.status === "running" ? "■" : "▶"}
+                        fg={runner()?.status === "running" ? theme.warning : theme.success}
+                        bg={theme.backgroundElement}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void tilldone(runner()?.status === "running" ? "stop" : "start")
+                        }}
+                      />
+                      <Button
+                        label="✕"
+                        fg={theme.error}
+                        bg={theme.backgroundElement}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void tilldone("abort")
+                        }}
+                      />
+                      <Button
+                        label="+"
+                        fg={theme.text}
+                        bg={theme.backgroundElement}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          dialog.replace(() => <NewTaskDialog onClose={() => dialog.clear()} onSave={createTask} />)
+                          dialog.setSize("small")
+                        }}
+                      />
+                    </box>
                   </box>
                   <Show
                     when={todos().length > 0}
-                    fallback={<text fg={theme.textMuted}>No queued tasks. Use [+] New Task to add work.</text>}
+                    fallback={<text fg={theme.textMuted}>No queued tasks. Press + to add work.</text>}
                   >
                     <box gap={1}>
                       {taskSection("Todo", todoTasks())}
-                      {taskSection("Done", doneTasks())}
+                      {taskSection("Done", doneTasks(), () => void clearDoneTasks())}
                     </box>
                   </Show>
                 </box>
@@ -272,7 +383,7 @@ export function Sidebar(props: {
               </Match>
               <Match when={true}>
                 <Show when={selectedTab() === "knowledge"}>
-                  <TuiPluginRuntime.Slot name="sidebar_content" session_id={props.sessionID} />
+                  <KnowledgeDiary entries={diaryEntries() ?? []} loading={diaryEntries.loading} />
                 </Show>
               </Match>
             </Switch>
@@ -309,18 +420,58 @@ function AgentStatus(props: { slot: number; name: string; status: string; tone: 
   )
 }
 
+function KnowledgeDiary(props: { entries: DiaryEntry[]; loading: boolean }) {
+  const { theme } = useTheme()
+  return (
+    <box gap={1}>
+      <text fg={theme.text}>
+        <b>Knowledge</b>
+      </text>
+      <Show
+        when={!props.loading}
+        fallback={<text fg={theme.textMuted}>Loading diary entries...</text>}
+      >
+        <Show
+          when={props.entries.length > 0}
+          fallback={<text fg={theme.textMuted}>No diary entries found in .opencode/diary.</text>}
+        >
+          <For each={props.entries}>
+            {(entry) => (
+              <box gap={0} border={["left"]} borderColor={theme.border} paddingLeft={1}>
+                <text fg={theme.text}>
+                  <b>{entry.date}</b>
+                </text>
+                <text fg={theme.textMuted}>{entry.content}</text>
+              </box>
+            )}
+          </For>
+        </Show>
+      </Show>
+    </box>
+  )
+}
+
 function TaskDialog(props: {
   item: QueueTask
   onClose: () => void
   onAction: (action: "claim" | "unclaim" | "clear", item: QueueTask) => Promise<void>
-  onSave: (item: QueueTask, content: string) => Promise<void>
+  onSave: (item: QueueTask, content: string, assignedAgent: string | null) => Promise<void>
 }) {
   const { theme } = useTheme()
+  const sync = useSync()
+  const local = useLocal()
   const tuiConfig = useTuiConfig()
   const [state, setState] = createSignal<"idle" | "working" | "failed">("idle")
+  const [selectedAgent, setSelectedAgent] = createSignal<string | undefined>(props.item.assignedAgent)
+  const agentOptions = createMemo(() => sync.data.agent.filter((item) => (item.mode === "subagent" || item.name === "build") && !item.hidden))
   let textarea: TextareaRenderable
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
   const agent = () => props.item.completedBy ?? props.item.claimedBy ?? props.item.createdBy ?? "unknown"
+  const moveAgent = (direction: number) => {
+    const options = [undefined, ...agentOptions().map((item) => item.name)]
+    const next = options.indexOf(selectedAgent()) + direction
+    setSelectedAgent(options[next < 0 ? options.length - 1 : next >= options.length ? 0 : next])
+  }
   const runAction = async (action: "claim" | "unclaim" | "clear") => {
     if (state() === "working") return
     setState("working")
@@ -332,11 +483,19 @@ function TaskDialog(props: {
   const save = async () => {
     if (state() === "working") return
     setState("working")
-    await props.onSave(props.item, textarea.plainText).then(
+    await props.onSave(props.item, textarea.plainText, selectedAgent() ?? null).then(
       () => setState("idle"),
       () => setState("failed"),
     )
   }
+
+  useKeyboard((event) => {
+    if (event.ctrl && (event.name === "n" || event.name === "p")) {
+      event.preventDefault()
+      event.stopPropagation()
+      moveAgent(event.name === "n" ? 1 : -1)
+    }
+  })
 
   onMount(() => {
     setTimeout(() => {
@@ -383,6 +542,34 @@ function TaskDialog(props: {
         <text fg={theme.textMuted}>Status: {props.item.status}</text>
         <text fg={theme.textMuted}>Agent: {agent()}</text>
       </box>
+      <box gap={0}>
+        <text fg={theme.textMuted}>Assigned agent</text>
+        <box flexDirection="row" gap={1} flexWrap="wrap">
+          <Button
+            label="Unassigned"
+            fg={selectedAgent() ? theme.textMuted : theme.text}
+            bg={selectedAgent() ? undefined : theme.backgroundElement}
+            onClick={(event) => {
+              event.stopPropagation()
+              setSelectedAgent(undefined)
+            }}
+          />
+          <For each={agentOptions()}>
+            {(agent) => (
+              <Button
+                label={agent.name}
+                fg={selectedAgent() === agent.name ? local.agent.color(agent.name) : theme.textMuted}
+                bg={selectedAgent() === agent.name ? theme.backgroundElement : undefined}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setSelectedAgent(agent.name)
+                }}
+              />
+            )}
+          </For>
+        </box>
+        <text fg={theme.textMuted}>ctrl+n/ctrl+p select agent</text>
+      </box>
       <Show when={state() === "failed"}>
         <text fg={theme.error}>Action failed. The task was not changed.</text>
       </Show>
@@ -407,25 +594,42 @@ function TaskDialog(props: {
   )
 }
 
-function NewTaskDialog(props: { onClose: () => void; onSave: (content: string) => Promise<void> }) {
+function NewTaskDialog(props: { onClose: () => void; onSave: (content: string, assignedAgent?: string) => Promise<void> }) {
   const { theme } = useTheme()
+  const sync = useSync()
+  const local = useLocal()
   const [state, setState] = createSignal<"idle" | "working" | "failed">("idle")
+  const [selectedAgent, setSelectedAgent] = createSignal<string | undefined>()
+  const agentOptions = createMemo(() => sync.data.agent.filter((item) => (item.mode === "subagent" || item.name === "build") && !item.hidden))
   let textarea: TextareaRenderable
+
+  const moveAgent = (direction: number) => {
+    const options = [undefined, ...agentOptions().map((item) => item.name)]
+    const next = options.indexOf(selectedAgent()) + direction
+    setSelectedAgent(options[next < 0 ? options.length - 1 : next >= options.length ? 0 : next])
+  }
 
   const save = async () => {
     if (state() === "working") return
     setState("working")
-    await props.onSave(textarea.plainText).then(
+    await props.onSave(textarea.plainText, selectedAgent()).then(
       () => setState("idle"),
       () => setState("failed"),
     )
   }
 
   useKeyboard((event) => {
-    if (event.name !== "return") return
-    event.preventDefault()
-    event.stopPropagation()
-    void save()
+    if (event.name === "return") {
+      event.preventDefault()
+      event.stopPropagation()
+      void save()
+      return
+    }
+    if (event.ctrl && (event.name === "n" || event.name === "p")) {
+      event.preventDefault()
+      event.stopPropagation()
+      moveAgent(event.name === "n" ? 1 : -1)
+    }
   })
 
   onMount(() => {
@@ -462,6 +666,34 @@ function NewTaskDialog(props: { onClose: () => void; onSave: (content: string) =
         keyBindings={state() === "working" ? [] : [{ name: "return", action: "submit" }]}
         onSubmit={() => void save()}
       />
+      <box gap={0}>
+        <text fg={theme.textMuted}>Assigned agent</text>
+        <box flexDirection="row" gap={1} flexWrap="wrap">
+          <Button
+            label="Unassigned"
+            fg={selectedAgent() ? theme.textMuted : theme.text}
+            bg={selectedAgent() ? undefined : theme.backgroundElement}
+            onClick={(event) => {
+              event.stopPropagation()
+              setSelectedAgent(undefined)
+            }}
+          />
+          <For each={agentOptions()}>
+            {(agent) => (
+              <Button
+                label={agent.name}
+                fg={selectedAgent() === agent.name ? local.agent.color(agent.name) : theme.textMuted}
+                bg={selectedAgent() === agent.name ? theme.backgroundElement : undefined}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setSelectedAgent(agent.name)
+                }}
+              />
+            )}
+          </For>
+        </box>
+        <text fg={theme.textMuted}>ctrl+n/ctrl+p select agent</text>
+      </box>
       <Show when={state() === "failed"}>
         <text fg={theme.error}>Could not save task.</text>
       </Show>

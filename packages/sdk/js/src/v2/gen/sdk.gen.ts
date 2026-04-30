@@ -153,6 +153,14 @@ import type {
   SessionStatusResponses,
   SessionSummarizeErrors,
   SessionSummarizeResponses,
+  SessionTilldoneAbortErrors,
+  SessionTilldoneAbortResponses,
+  SessionTilldoneStartErrors,
+  SessionTilldoneStartResponses,
+  SessionTilldoneStatusErrors,
+  SessionTilldoneStatusResponses,
+  SessionTilldoneStopErrors,
+  SessionTilldoneStopResponses,
   SessionTodoClaimErrors,
   SessionTodoClaimResponses,
   SessionTodoClearErrors,
@@ -1798,6 +1806,148 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Get TillDone runner status
+   *
+   * Retrieve the current project-scoped TillDone orchestration runner status.
+   */
+  public tilldoneStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionTilldoneStatusResponses,
+      SessionTilldoneStatusErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/tilldone/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Start TillDone runner
+   *
+   * Start the project-scoped TillDone orchestration loop.
+   */
+  public tilldoneStart<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionTilldoneStartResponses,
+      SessionTilldoneStartErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/tilldone/start",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Stop TillDone runner
+   *
+   * Request a graceful TillDone stop. Running workers finish; no new work is claimed.
+   */
+  public tilldoneStop<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionTilldoneStopResponses, SessionTilldoneStopErrors, ThrowOnError>(
+      {
+        url: "/session/{sessionID}/tilldone/stop",
+        ...options,
+        ...params,
+      },
+    )
+  }
+
+  /**
+   * Abort TillDone runner
+   *
+   * Abort running TillDone workers and mark active tasks interrupted.
+   */
+  public tilldoneAbort<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionTilldoneAbortResponses,
+      SessionTilldoneAbortErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/tilldone/abort",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Delete session
    *
    * Delete a session and permanently remove all associated data, including messages and history.
@@ -1983,6 +2133,7 @@ export class Session2 extends HeyApiClient {
       content?: string
       priority?: "high" | "medium" | "low"
       agent?: string
+      assignedAgent?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1997,6 +2148,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "content" },
             { in: "body", key: "priority" },
             { in: "body", key: "agent" },
+            { in: "body", key: "assignedAgent" },
           ],
         },
       ],
@@ -2025,6 +2177,7 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       id?: string
       content?: string
+      assignedAgent?: string | null
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2038,6 +2191,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "id" },
             { in: "body", key: "content" },
+            { in: "body", key: "assignedAgent" },
           ],
         },
       ],

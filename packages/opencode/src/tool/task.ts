@@ -8,6 +8,7 @@ import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
 import { Effect, Schema } from "effect"
 import { Permission } from "@/permission"
+import { SessionDiary } from "@/session/diary"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): void
@@ -160,6 +161,8 @@ export const TaskTool = Tool.define(
               },
               parts,
             })
+            const text = result.parts.findLast((item) => item.type === "text")?.text ?? ""
+            yield* SessionDiary.appendDecision(text)
 
             return {
               title: params.description,
@@ -171,7 +174,7 @@ export const TaskTool = Tool.define(
                 `task_id: ${nextSession.id} (for resuming to continue this task if needed)`,
                 "",
                 "<task_result>",
-                result.parts.findLast((item) => item.type === "text")?.text ?? "",
+                text,
                 "</task_result>",
               ].join("\n"),
             }

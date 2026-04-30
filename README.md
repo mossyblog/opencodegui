@@ -41,6 +41,9 @@
 
 [![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
 
+> [!NOTE]
+> OpenGui is a fork of [OpenCode](https://github.com/anomalyco/opencode). It tracks upstream OpenCode as closely as possible while focusing more on GUI and TUI work.
+
 ---
 
 ### Installation

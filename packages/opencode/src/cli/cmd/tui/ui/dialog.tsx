@@ -9,7 +9,7 @@ import * as Selection from "@tui/util/selection"
 
 export function Dialog(
   props: ParentProps<{
-    size?: "small" | "medium" | "large" | "xlarge"
+    size?: "small" | "medium" | "large" | "xlarge" | "fullscreen"
     onClose: () => void
   }>,
 ) {
@@ -20,6 +20,7 @@ export function Dialog(
   let dismiss = false
   const width = () => {
     if (props.size === "small") return Math.max(40, Math.floor(dimensions().width / 2))
+    if (props.size === "fullscreen") return Math.floor(dimensions().width * 0.8)
     if (props.size === "xlarge") return 116
     if (props.size === "large") return 88
     return 60
@@ -42,7 +43,7 @@ export function Dialog(
       alignItems="center"
       position="absolute"
       zIndex={3000}
-      paddingTop={dimensions().height / 4}
+      paddingTop={props.size === "fullscreen" ? Math.floor(dimensions().height * 0.1) : dimensions().height / 4}
       left={0}
       top={0}
       backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
@@ -69,7 +70,7 @@ function init() {
       element: JSX.Element
       onClose?: () => void
     }[],
-    size: "medium" as "small" | "medium" | "large" | "xlarge",
+    size: "medium" as "small" | "medium" | "large" | "xlarge" | "fullscreen",
   })
 
   const renderer = useRenderer()
@@ -142,7 +143,7 @@ function init() {
     get size() {
       return store.size
     },
-    setSize(size: "small" | "medium" | "large" | "xlarge") {
+    setSize(size: "small" | "medium" | "large" | "xlarge" | "fullscreen") {
       setStore("size", size)
     },
   }

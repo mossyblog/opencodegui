@@ -89,6 +89,7 @@ import { useTuiConfig } from "../../context/tui-config"
 import { getScrollAcceleration } from "../../util/scroll"
 import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import { DialogGoUpsell } from "../../component/dialog-go-upsell"
+import { DialogKanban } from "../../component/dialog-kanban"
 import { SessionRetry } from "@/session/retry"
 import { getRevertDiffFiles } from "../../util/revert-diff"
 
@@ -151,7 +152,7 @@ export function Session() {
   const agentFeedSlots = createMemo(() => {
     const childSessions = sync.data.session.filter((item) => item.parentID === route.sessionID)
     return sync.data.agent
-      .filter((item) => item.mode === "subagent" && !item.hidden)
+      .filter((item) => (item.mode === "subagent" || item.name === "build") && !item.hidden)
       .map((agent) => {
         const sessions = childSessions.filter((item) => {
           const match = /^(.*) \(@(.+) subagent\)$/.exec(item.title)
@@ -685,6 +686,53 @@ export function Session() {
           setSidebarOpen(true)
           setSidebarTab("tilldone")
         })
+        dialog.clear()
+      },
+    },
+    {
+      title: "Kanban",
+      value: "session.tasks.kanban",
+      description: "Show TillDone tasks as Todo, Progress, Blocked, and Done",
+      category: "TillDone",
+      suggested: true,
+      slash: {
+        name: "kanban",
+      },
+      onSelect: (dialog) => {
+        dialog.replace(() => <DialogKanban sessionID={route.sessionID} />)
+        dialog.setSize("fullscreen")
+      },
+    },
+    {
+      title: "Dispatch TillDone tasks",
+      value: "session.tasks.orchestrate",
+      description: "Assign and dispatch queued tasks to agents in parallel",
+      category: "TillDone",
+      keybind: "tasks_orchestrate",
+      onSelect: (dialog) => {
+        local.agent.set("build")
+        prompt?.set({
+          input:
+            "Orchestrate the TillDone task queue now. First assign every unassigned task to the best suited specialist agent and rank tasks globally and per assigned agent by dependency order; keep build assigned only to build-system tasks, not default implementation work. Then dispatch one task call per available assigned agent in the same response wherever safe, including build and subagents together; build doing work must not block subagents from claiming and working independent tasks. Do not hand agents batches of task descriptions. Each agent must use taskqueue claim_next to claim exactly one assigned task, finish or cancel it, then call claim_next again for the next task. Agents must repeat that one-task-at-a-time loop until no assigned tasks remain. Subagents must not run repo builds; they should run focused tests and package-level typechecks relevant to their claimed task. After returned agent work includes meaningful decisions made, append a concise 1-2 sentence decisions-made entry to .opencode/diary/<date>.md.",
+          parts: [],
+        })
+        prompt?.submit()
+        dialog.clear()
+      },
+    },
+    {
+      title: "Clear all tasks",
+      value: "session.tasks.clear",
+      description: "Remove every task from TillDone",
+      category: "TillDone",
+      enabled: (sync.data.todo[route.sessionID] ?? []).length > 0,
+      onSelect: async (dialog) => {
+        await Promise.all(
+          (sync.data.todo[route.sessionID] ?? [])
+            .filter((item) => item.id)
+            .map((item) => sdk.client.session.todoClear({ sessionID: route.sessionID, id: item.id! })),
+        )
+        sync.set("todo", route.sessionID, [])
         dialog.clear()
       },
     },
@@ -2347,7 +2395,7 @@ function TodoWrite(props: ToolProps<typeof TodoWriteTool>) {
         <BlockTool title="# Todos" part={props.part}>
           <box>
             <For each={props.input.todos ?? []}>
-              {(todo) => <TodoItem status={todo.status} content={todo.content} />}
+              {(todo) => <TodoItem status={todo.status} content={todo.content} assignedAgent={todo.assignedAgent} />}
             </For>
           </box>
         </BlockTool>

@@ -1180,6 +1180,20 @@ export function fromError(
         { cause: e },
       ).toObject()
     case e instanceof Error:
+      const generic = ProviderError.parseGenericError({ providerID: ctx.providerID, error: e })
+      if (generic?.type === "api_error") {
+        return new APIError(
+          {
+            message: generic.message,
+            statusCode: generic.statusCode,
+            isRetryable: generic.isRetryable,
+            responseHeaders: generic.responseHeaders,
+            responseBody: generic.responseBody,
+            metadata: generic.metadata,
+          },
+          { cause: e },
+        ).toObject()
+      }
       return new NamedError.Unknown({ message: errorMessage(e) }, { cause: e }).toObject()
     default:
       try {
