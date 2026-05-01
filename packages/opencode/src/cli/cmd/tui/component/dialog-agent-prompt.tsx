@@ -1,7 +1,7 @@
-import { InputRenderable, RGBA, TextAttributes } from "@opentui/core"
+import { InputRenderable, RGBA } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
-import { useDialog } from "@tui/ui/dialog"
+import { DialogContent, DialogFooter, DialogHeader, useDialog } from "@tui/ui/dialog"
 import { selectedForeground, useTheme } from "@tui/context/theme"
 import { useSync } from "@tui/context/sync"
 import { useLocal } from "@tui/context/local"
@@ -52,12 +52,9 @@ export function DialogAgentPrompt(props: { onSubmit: (agent: string, prompt: str
   })
 
   return (
-    <box gap={1} paddingBottom={1}>
-      <box paddingLeft={4} paddingRight={4}>
-        <box flexDirection="row" justifyContent="space-between">
-          <text fg={theme.text} attributes={TextAttributes.BOLD}>Agent task</text>
-          <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>esc</text>
-        </box>
+    <DialogContent>
+      <box>
+        <DialogHeader title="Agent task" onClose={() => dialog.clear()} />
         <box paddingTop={1}>
           <input
             onInput={setPrompt}
@@ -78,7 +75,7 @@ export function DialogAgentPrompt(props: { onSubmit: (agent: string, prompt: str
         </box>
       </box>
       <Show when={agents().length > 0} fallback={<box paddingLeft={4}><text fg={theme.textMuted}>No subagents available</text></box>}>
-        <box paddingLeft={1} paddingRight={1}>
+        <box>
           <For each={agents()}>
             {(agent, index) => {
               const active = createMemo(() => selected() === index())
@@ -86,8 +83,8 @@ export function DialogAgentPrompt(props: { onSubmit: (agent: string, prompt: str
                 <box
                   flexDirection="row"
                   gap={1}
-                  paddingLeft={3}
-                  paddingRight={3}
+                  paddingLeft={1}
+                  paddingRight={1}
                   backgroundColor={active() ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
                   onMouseOver={() => setSelected(index())}
                   onMouseUp={() => {
@@ -104,10 +101,10 @@ export function DialogAgentPrompt(props: { onSubmit: (agent: string, prompt: str
           </For>
         </box>
       </Show>
-      <box paddingLeft={4} paddingRight={4} flexDirection="row" justifyContent="space-between">
+      <DialogFooter justifyContent="space-between">
         <text fg={theme.textMuted}>up/down select</text>
         <text fg={theme.textMuted}>enter send</text>
-      </box>
-    </box>
+      </DialogFooter>
+    </DialogContent>
   )
 }

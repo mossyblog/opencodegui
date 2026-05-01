@@ -20,7 +20,7 @@ export const Info = Schema.Struct({
   status: Schema.String.annotate({ description: "Current task status" }),
   priority: Schema.String.annotate({ description: "Priority level of the task" }),
   assignedAgent: Schema.optional(Schema.String).annotate({ description: "Agent assigned to the task" }),
-  bounceCount: Schema.optional(Schema.Number).annotate({ description: "QA/dev handoff count for this task" }),
+  bounceCount: Schema.optional(Schema.Number).annotate({ description: "Manual QA handoff count for this task" }),
   history: Schema.optional(Schema.String).annotate({ description: "Simple timestamped lifecycle history" }),
   createdBy: Schema.optional(Schema.String).annotate({ description: "Agent or session that created the task" }),
   claimedBy: Schema.optional(Schema.String).annotate({ description: "Agent currently responsible for the task" }),
@@ -56,17 +56,23 @@ export interface Interface {
     history?: string
   }) => Effect.Effect<Info>
   readonly claimNext: (input: { sessionID: SessionID; agent: string }) => Effect.Effect<{ claimed?: Info; next?: Info }>
+  readonly claimNextRunnable: (input: { sessionID: SessionID; agents: RunnableAgent[] }) => Effect.Effect<{ claimed?: Info; agent?: string; next?: Info }>
   readonly claim: (input: { sessionID: SessionID; id: string; agent: string }) => Effect.Effect<{ claimed?: Info; next?: Info }>
-  readonly complete: (input: { sessionID: SessionID; id: string; agent: string }) => Effect.Effect<FinishResult>
+  readonly complete: (input: { sessionID: SessionID; id: string; agent: string; summary?: string; workerSessionID?: string }) => Effect.Effect<FinishResult>
+  readonly block: (input: { sessionID: SessionID; id: string; agent: string; blocker: string; workerSessionID?: string }) => Effect.Effect<FinishResult>
+  readonly interrupt: (input: { sessionID: SessionID; id: string; agent: string; reason: string; workerSessionID?: string }) => Effect.Effect<FinishResult>
   readonly cancel: (input: { sessionID: SessionID; id: string; agent: string }) => Effect.Effect<FinishResult>
+  readonly handoff: (input: { sessionID: SessionID; id: string; agent: string; assignedAgent?: string; status?: string; priority?: Priority; bounceCount?: number; message: string }) => Effect.Effect<Info | undefined>
   readonly interruptActive: (input: { sessionID: SessionID; agent?: string; reason: string }) => Effect.Effect<Info[]>
   readonly unclaim: (input: { sessionID: SessionID; id: string }) => Effect.Effect<void>
   readonly reassign: (input: { sessionID: SessionID; id: string; agent?: string }) => Effect.Effect<void>
   readonly remove: (input: { sessionID: SessionID; id: string }) => Effect.Effect<void>
   readonly edit: (input: { sessionID: SessionID; id: string; content: string; assignedAgent?: string | null }) => Effect.Effect<void>
+  readonly updatePending: (input: { sessionID: SessionID; id: string; agent: string; content?: string; priority?: Priority; assignedAgent?: string }) => Effect.Effect<Info | undefined>
 }
 
 type FinishResult = { completed?: Info; cancelled?: Info; next?: Info }
+export type RunnableAgent = string | { name: string; hidden?: boolean }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionTodo") {}
 
@@ -145,6 +151,19 @@ export const layer = Layer.effect(
     const nextPending = (todos: Info[], agent?: string) =>
       todos
         .filter((todo) => todo.status === "pending" && (!agent || !todo.assignedAgent || todo.assignedAgent === agent))
+        .toSorted((a, b) => priorityRank(a.priority) - priorityRank(b.priority))[0]
+
+    const runnableAgent = (todo: Info, agents: string[]) => todo.assignedAgent ? agents.find((agent) => agent === todo.assignedAgent) : agents[0]
+
+    const runnableAgents = (agents: RunnableAgent[]) =>
+      agents
+        .filter((agent) => typeof agent === "string" || !agent.hidden)
+        .map((agent) => typeof agent === "string" ? agent : agent.name)
+        .filter((agent, index, all) => all.indexOf(agent) === index)
+
+    const nextRunnable = (todos: Info[], agents: string[]) =>
+      todos
+        .filter((todo) => todo.status === "pending" && runnableAgent(todo, agents))
         .toSorted((a, b) => priorityRank(a.priority) - priorityRank(b.priority))[0]
 
     const projectID = (sessionID: SessionID) => {
@@ -259,6 +278,34 @@ export const layer = Layer.effect(
       return result
     })
 
+    const claimNextRunnable = Effect.fn("Todo.claimNextRunnable")(function* (input: { sessionID: SessionID; agents: RunnableAgent[] }) {
+      ensureSchema()
+      const result = yield* Effect.sync(() =>
+        Database.transaction((db) => {
+          const agents = runnableAgents(input.agents)
+          if (agents.length === 0) return {}
+          const pid = projectID(input.sessionID)
+          const todos = db.select().from(TodoTable).where(eq(TodoTable.project_id, pid)).orderBy(asc(TodoTable.position)).all().map(fromRow)
+          const claimed = nextRunnable(todos, agents)
+          const agent = claimed ? runnableAgent(claimed, agents) : undefined
+          if (!claimed?.id || !agent) return {}
+          const now = Date.now()
+          const history = appendHistory(claimed, agent, "Claimed task.")
+          db.update(TodoTable)
+            .set({ status: "in_progress", claimed_by: agent, claimed_at: now, history })
+            .where(and(eq(TodoTable.project_id, pid), eq(TodoTable.id, claimed.id), eq(TodoTable.status, "pending")))
+            .run()
+          return {
+            claimed: { ...claimed, status: "in_progress", claimedBy: agent, claimedAt: now, history },
+            agent,
+            next: nextRunnable(todos.filter((todo) => todo.id !== claimed.id), agents),
+          }
+        }),
+      )
+      yield* bus.publish(Event.Updated, { sessionID: input.sessionID, todos: yield* get(input.sessionID) })
+      return result
+    })
+
     const claim = Effect.fn("Todo.claim")(function* (input: { sessionID: SessionID; id: string; agent: string }) {
       ensureSchema()
       const result = yield* Effect.sync(() =>
@@ -295,7 +342,9 @@ export const layer = Layer.effect(
       sessionID: SessionID
       id: string
       agent: string
-      status: "completed" | "cancelled"
+      status: "completed" | "cancelled" | "blocked" | "interrupted" | "failed"
+      summary?: string
+      workerSessionID?: string
     }) {
       ensureSchema()
       const result: FinishResult = yield* Effect.sync(() =>
@@ -312,14 +361,30 @@ export const layer = Layer.effect(
           if (match.status !== "in_progress" && match.status !== "claimed") return {}
           if (match.claimedBy !== input.agent) return {}
           const now = Date.now()
-          const history = appendHistory(match, input.agent, input.status === "completed" ? "Completed task." : "Cancelled task.")
+          const history = appendHistory(
+            match,
+            input.agent,
+            [
+              input.status === "completed"
+                ? "Completed task."
+                : input.status === "cancelled"
+                  ? "Cancelled task."
+                  : input.status === "blocked"
+                    ? "Blocked task."
+                    : input.status === "failed"
+                      ? "Failed task."
+                      : "Interrupted task.",
+              input.workerSessionID ? `Worker session: ${input.workerSessionID}` : undefined,
+              input.summary ? `Worker summary:\n${input.summary}` : undefined,
+            ].filter(Boolean).join("\n\n"),
+          )
           db.update(TodoTable)
             .set({ status: input.status, completed_by: input.agent, completed_at: now, history })
             .where(and(eq(TodoTable.project_id, projectID(input.sessionID)), eq(TodoTable.id, match.id)))
             .run()
           const done = { ...match, status: input.status, completedBy: input.agent, completedAt: now, history }
           return {
-            ...(input.status === "completed" ? { completed: done } : { cancelled: done }),
+            ...(input.status === "cancelled" ? { cancelled: done } : { completed: done }),
             next: nextPending(todos.filter((todo) => todo.id !== match.id), input.agent),
           }
         }),
@@ -328,12 +393,80 @@ export const layer = Layer.effect(
       return result
     })
 
-    const complete = Effect.fn("Todo.complete")(function* (input: { sessionID: SessionID; id: string; agent: string }) {
+    const complete = Effect.fn("Todo.complete")(function* (input: { sessionID: SessionID; id: string; agent: string; summary?: string; workerSessionID?: string }) {
       return yield* finish({ ...input, status: "completed" })
     })
 
+    const block = Effect.fn("Todo.block")(function* (input: { sessionID: SessionID; id: string; agent: string; blocker: string; workerSessionID?: string }) {
+      return yield* finish({ sessionID: input.sessionID, id: input.id, agent: input.agent, status: "blocked", summary: input.blocker, workerSessionID: input.workerSessionID })
+    })
+
+    const interrupt = Effect.fn("Todo.interrupt")(function* (input: { sessionID: SessionID; id: string; agent: string; reason: string; workerSessionID?: string }) {
+      return yield* finish({ sessionID: input.sessionID, id: input.id, agent: input.agent, status: "interrupted", summary: input.reason, workerSessionID: input.workerSessionID })
+    })
+
     const cancel = Effect.fn("Todo.cancel")(function* (input: { sessionID: SessionID; id: string; agent: string }) {
-      return yield* finish({ ...input, status: "cancelled" })
+      ensureSchema()
+      const result: FinishResult = yield* Effect.sync(() =>
+        Database.transaction((db) => {
+          const pid = projectID(input.sessionID)
+          const match = db.select().from(TodoTable).where(and(eq(TodoTable.project_id, pid), eq(TodoTable.id, input.id))).get()
+          if (!match) return {}
+          const row = fromRow(match)
+          if (row.status !== "pending" && row.status !== "in_progress" && row.status !== "claimed") return {}
+          if ((row.status === "in_progress" || row.status === "claimed") && row.claimedBy !== input.agent) return {}
+          const now = Date.now()
+          const history = appendHistory(row, input.agent, "Cancelled task.")
+          db.update(TodoTable)
+            .set({ status: "cancelled", completed_by: input.agent, completed_at: now, history })
+            .where(and(eq(TodoTable.project_id, pid), eq(TodoTable.id, input.id)))
+            .run()
+          return { cancelled: { ...row, status: "cancelled", completedBy: input.agent, completedAt: now, history } }
+        }),
+      )
+      yield* bus.publish(Event.Updated, { sessionID: input.sessionID, todos: yield* get(input.sessionID) })
+      return result
+    })
+
+    const handoff = Effect.fn("Todo.handoff")(function* (input: { sessionID: SessionID; id: string; agent: string; assignedAgent?: string; status?: string; priority?: Priority; bounceCount?: number; message: string }) {
+      ensureSchema()
+      const changed = yield* Effect.sync(() =>
+        Database.transaction((db) => {
+          const pid = projectID(input.sessionID)
+          const match = db.select().from(TodoTable).where(and(eq(TodoTable.project_id, pid), eq(TodoTable.id, input.id))).get()
+          if (!match) return undefined
+          const row = fromRow(match)
+          const updated = {
+            ...row,
+            status: input.status ?? "pending",
+            priority: input.priority ?? row.priority,
+            assignedAgent: input.assignedAgent,
+            bounceCount: input.bounceCount ?? row.bounceCount,
+            claimedBy: undefined,
+            claimedAt: undefined,
+            completedBy: undefined,
+            completedAt: undefined,
+            history: appendHistory(row, input.agent, input.message),
+          }
+          db.update(TodoTable)
+            .set({
+              status: updated.status,
+              priority: updated.priority,
+              assigned_agent: updated.assignedAgent ?? null,
+              bounce_count: updated.bounceCount,
+              claimed_by: null,
+              claimed_at: null,
+              completed_by: null,
+              completed_at: null,
+              history: updated.history,
+            })
+            .where(and(eq(TodoTable.project_id, pid), eq(TodoTable.id, input.id)))
+            .run()
+          return updated
+        }),
+      )
+      yield* bus.publish(Event.Updated, { sessionID: input.sessionID, todos: yield* get(input.sessionID) })
+      return changed
     })
 
     const interruptActive = Effect.fn("Todo.interruptActive")(function* (input: { sessionID: SessionID; agent?: string; reason: string }) {
@@ -425,7 +558,39 @@ export const layer = Layer.effect(
       yield* bus.publish(Event.Updated, { sessionID: input.sessionID, todos: yield* get(input.sessionID) })
     })
 
-    return Service.of({ update, get, create, claimNext, claim, complete, cancel, interruptActive, unclaim, reassign, remove, edit })
+    const updatePending = Effect.fn("Todo.updatePending")(function* (input: { sessionID: SessionID; id: string; agent: string; content?: string; priority?: Priority; assignedAgent?: string }) {
+      ensureSchema()
+      const changed = yield* Effect.sync(() =>
+        Database.transaction((db) => {
+          const pid = projectID(input.sessionID)
+          const match = db.select().from(TodoTable).where(and(eq(TodoTable.project_id, pid), eq(TodoTable.id, input.id))).get()
+          if (!match) return undefined
+          const row = fromRow(match)
+          if (row.status !== "pending") return undefined
+          const updated = {
+            ...row,
+            content: input.content ?? row.content,
+            priority: input.priority ?? row.priority,
+            assignedAgent: input.assignedAgent ?? row.assignedAgent,
+            history: appendHistory(row, input.agent, input.agent === "plan" || input.agent === "task" ? `Updated task from ${input.agent} mode.` : `Updated task from ${input.agent}.`),
+          }
+          db.update(TodoTable)
+            .set({
+              content: updated.content,
+              priority: updated.priority,
+              assigned_agent: updated.assignedAgent,
+              history: updated.history,
+            })
+            .where(and(eq(TodoTable.project_id, pid), eq(TodoTable.id, input.id)))
+            .run()
+          return updated
+        }),
+      )
+      yield* bus.publish(Event.Updated, { sessionID: input.sessionID, todos: yield* get(input.sessionID) })
+      return changed
+    })
+
+    return Service.of({ update, get, create, claimNext, claimNextRunnable, claim, complete, block, interrupt, cancel, handoff, interruptActive, unclaim, reassign, remove, edit, updatePending })
   }),
 )
 

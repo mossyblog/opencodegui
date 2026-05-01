@@ -9,15 +9,20 @@ Actions:
 - complete: Mark a task complete by id.
 - cancel: Mark a task cancelled by id.
 - reassign: Change the assigned agent for a task by id.
+- update: Update an existing pending task's content, priority, or assigned agent without claiming it.
 
-Tasks may include an assigned agent. When creating tasks, set assigned_agent when the best owner is known; otherwise the tool will infer one for common TUI, docs, verification, build-system, and general implementation work. Build is reserved for build-system work only; implementation tasks assigned to build are routed to the best non-build agent instead.
+Tasks may include an assigned agent. When creating tasks, set assigned_agent when the best owner is known; otherwise the tool will infer one for common TUI, docs, verification, build-system, and general implementation work. Build is reserved for build-system and explicit final verification/build work only; implementation tasks assigned to build are routed to the best non-build agent instead.
 
-In plan mode, only create and list are allowed. Plan mode cannot claim, complete, or cancel queued work because those actions start or close execution.
+Use build for explicit final verification/build tasks only after implementation work is done, for example: `Final verification: from packages/opencode run bun typecheck and the agreed package-level focused checks`. Keep this as a separate queue task so broad verification does not block parallel implementation work mid-stream.
 
-Agents must work one task at a time. Claim exactly one task, finish or cancel that task, then claim the next task. Do not accept or work from a batch of task descriptions handed to you up front. Agents must not run full repo builds; perform the requested work with focused tests or package-level checks and leave repo build work to Build.
+In plan mode, create, list, update, and cancel pending tasks are allowed. Plan mode cannot claim, complete, reassign, or cancel active queued work because those actions start or close execution.
+
+When plan mode breaks a broad request into smaller executable tasks, use update or pending-task cancellation to remove superseded summary tasks instead of leaving stale hang-on work in the queue.
+
+Agents must work one task at a time. Claim exactly one task, finish or cancel that task, then claim the next task. Do not accept or work from a batch of task descriptions handed to you up front. While parallel work is active, agents must not run broad/full test batteries or repo-root builds; perform only focused checks relevant to the claimed task and leave broad package/build verification to an explicit final verification task.
 
 The tool will refuse to give an agent another task while it already has a claimed task. After completing or cancelling work, call claim_next again if you should continue. Do not complete or cancel a queued task unless you claimed it first.
 
-When a non-QA agent completes a task, the tool automatically creates a follow-up validation task assigned to qa. QA must validate the completed work against the original task and must not fix issues directly. If QA finds issues, QA should create a new task assigned to the original agent with the concrete findings and reproduction/verification notes, then complete the QA task.
+Completing a task marks that task complete and preserves its history. The tool does not create QA validation work automatically; users or orchestrators must explicitly create or reassign QA work when they want a manual validation pass.
 
-Orchestrators should dispatch independent assigned agents in parallel with one task call per available agent wherever safe; build work must not block subagents from claiming and working unrelated tasks. Orchestrators should append 1-2 sentence decisions-made entries to `.opencode/diary/<date>.md` only when returned agent work included meaningful decisions.
+Orchestrators should dispatch independent assigned agents in parallel with one task call per available agent wherever safe; build or broad verification work must be reserved for an explicit final verification task and must not block subagents from claiming unrelated implementation tasks. Orchestrators should append 1-2 sentence decisions-made entries to `.opencode/diary/<date>.md` only when returned agent work included meaningful decisions.

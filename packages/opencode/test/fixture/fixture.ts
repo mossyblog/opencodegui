@@ -32,6 +32,12 @@ function clean(dir: string) {
   })
 }
 
+async function writeProjectId(dir: string) {
+  const dotgit = path.join(dir, ".git")
+  await fs.mkdir(dotgit, { recursive: true })
+  await fs.writeFile(path.join(dotgit, "opencode"), `test-${Math.random().toString(36).slice(2)}`)
+}
+
 async function stop(dir: string) {
   if (!(await exists(dir))) return
   await $`git fsmonitor--daemon stop`.cwd(dir).quiet().nothrow()
@@ -54,6 +60,7 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
     await $`git config user.name "Test"`.cwd(dirpath).quiet()
     await $`git commit --allow-empty -m "root commit ${dirpath}"`.cwd(dirpath).quiet()
   }
+  if (!options?.git) await writeProjectId(dirpath)
   if (options?.config) {
     await Bun.write(
       path.join(dirpath, "opencode.json"),
@@ -106,6 +113,8 @@ export function tmpdirScoped(options?: { git?: boolean; config?: Partial<Config.
       yield* git("config", "user.name", "Test")
       yield* git("commit", "--allow-empty", "-m", "root commit")
     }
+
+    if (!options?.git) yield* Effect.promise(() => writeProjectId(dir))
 
     if (options?.config) {
       yield* Effect.promise(() =>

@@ -1,9 +1,8 @@
-import { afterEach, describe, expect } from "bun:test"
+import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "@/config/config"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { Instance } from "../../src/project/instance"
 import { Session } from "@/session/session"
 import { Todo } from "@/session/todo"
 import { TaskQueueTool } from "../../src/tool/taskqueue"
@@ -12,10 +11,6 @@ import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { MessageID, type SessionID } from "@/session/schema"
 import { Database } from "@/storage/db"
-
-afterEach(async () => {
-  await Instance.disposeAll()
-})
 
 const it = testEffect(
   Layer.mergeAll(Agent.defaultLayer, Config.defaultLayer, CrossSpawnSpawner.defaultLayer, Session.defaultLayer, Todo.defaultLayer, Truncate.defaultLayer),
@@ -52,8 +47,7 @@ describe("tool.taskqueue", () => {
 
         const completed = yield* def.execute({ action: "complete", id: claimed.metadata.claimed!.id }, ctx)
         expect(completed.metadata.todos.find((todo) => todo.content === "urgent")?.status).toBe("completed")
-        expect(completed.metadata.todos.find((todo) => todo.content === "urgent")?.completedBy).toBe("general")
-        expect(completed.metadata.todos.find((todo) => todo.content.includes("Validate general's completed work"))?.assignedAgent).toBe("qa")
+        expect(completed.metadata.todos).toHaveLength(2)
       }),
     ),
   )
@@ -142,7 +136,7 @@ describe("tool.taskqueue", () => {
     ),
   )
 
-  it.live("allows plan mode to enqueue but blocks task execution actions", () =>
+  it.live("allows plan mode to update and cancel pending tasks but blocks execution actions", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const sessions = yield* Session.Service
@@ -153,14 +147,126 @@ describe("tool.taskqueue", () => {
         const def = yield* tool.init()
 
         const created = yield* def.execute({ action: "create", content: "safe planning task", priority: "medium" }, context(session.id, "plan"))
+        const updated = yield* def.execute({ action: "update", id: created.metadata.todos[0]!.id, content: "safer planning task", priority: "high", assigned_agent: "qa" }, context(session.id, "plan"))
         const claimed = yield* def.execute({ action: "claim_next" }, context(session.id, "plan"))
         const completed = yield* def.execute({ action: "complete", id: created.metadata.todos[0]!.id }, context(session.id, "plan"))
+        const cancelled = yield* def.execute({ action: "cancel", id: created.metadata.todos[0]!.id }, context(session.id, "plan"))
         const listed = yield* def.execute({ action: "list" }, context(session.id, "plan"))
 
         expect(created.metadata.todos).toHaveLength(1)
+        expect(updated.title).toBe("task updated")
+        expect(updated.metadata.todos[0]?.content).toBe("safer planning task")
+        expect(updated.metadata.todos[0]?.priority).toBe("high")
+        expect(updated.metadata.todos[0]?.assignedAgent).toBe("qa")
+        expect(updated.metadata.todos[0]?.history).toContain("plan\nUpdated task from plan mode.")
         expect(claimed.title).toBe("task execution blocked in plan mode")
         expect(completed.title).toBe("task execution blocked in plan mode")
-        expect(listed.metadata.todos[0]?.status).toBe("pending")
+        expect(cancelled.title).toBe("task cancelled")
+        expect(listed.metadata.todos[0]?.status).toBe("cancelled")
+        expect(listed.metadata.todos[0]?.completedBy).toBe("plan")
+        expect(listed.metadata.todos[0]?.history).toContain("plan\nUpdated task from plan mode.")
+        expect(listed.metadata.todos[0]?.history).toContain("plan\nCancelled task.")
+      }),
+    ),
+  )
+
+  it.live("blocks plan mode from cancelling active tasks", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const todos = yield* Todo.Service
+        const session = yield* sessions.create({ title: "Plan active cancel" })
+        yield* todos.update({ sessionID: session.id, todos: [] })
+        const tool = yield* TaskQueueTool
+        const def = yield* tool.init()
+
+        const created = yield* def.execute({ action: "create", content: "active task", priority: "medium" }, context(session.id, "general"))
+        yield* def.execute({ action: "claim_next" }, context(session.id, "general"))
+        const cancelled = yield* def.execute({ action: "cancel", id: created.metadata.todos[0]!.id }, context(session.id, "plan"))
+
+        expect(cancelled.title).toBe("task execution blocked in plan mode")
+        expect(cancelled.metadata.todos[0]?.status).toBe("in_progress")
+      }),
+    ),
+  )
+
+  it.live("updates pending tasks without claiming them", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const todos = yield* Todo.Service
+        const session = yield* sessions.create({ title: "Pending update" })
+        yield* todos.update({ sessionID: session.id, todos: [] })
+        const tool = yield* TaskQueueTool
+        const def = yield* tool.init()
+
+        const created = yield* def.execute({ action: "create", content: "draft task", priority: "medium", assigned_agent: "general" }, context(session.id, "general"))
+        const updated = yield* def.execute({ action: "update", id: created.metadata.todos[0]!.id, content: "ready task", priority: "high", assigned_agent: "qa" }, context(session.id, "general"))
+        const task = updated.metadata.todos[0]
+
+        expect(updated.title).toBe("task updated")
+        expect(updated.output).toContain("Task updated:")
+        expect(updated.output).toContain("Queue: 1 pending, 0 active, 0 completed")
+        expect(task?.id).toBe(created.metadata.todos[0]!.id)
+        expect(task?.status).toBe("pending")
+        expect(task?.claimedBy).toBeUndefined()
+        expect(task?.content).toBe("ready task")
+        expect(task?.priority).toBe("high")
+        expect(task?.assignedAgent).toBe("qa")
+        expect(task?.history).toContain("general\nTask created.")
+        expect(task?.history).toContain("general\nUpdated task from general.")
+      }),
+    ),
+  )
+
+  it.live("lets plan mode cancel stale summary tasks after replacement tasks are created", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const todos = yield* Todo.Service
+        const session = yield* sessions.create({ title: "Stale summary cleanup" })
+        yield* todos.update({ sessionID: session.id, todos: [] })
+        const tool = yield* TaskQueueTool
+        const def = yield* tool.init()
+
+        const summary = yield* def.execute({ action: "create", content: "summary placeholder", priority: "medium" }, context(session.id, "plan"))
+        yield* def.execute({ action: "create", content: "detailed replacement one", priority: "high", assigned_agent: "general" }, context(session.id, "plan"))
+        yield* def.execute({ action: "create", content: "detailed replacement two", priority: "high", assigned_agent: "tui-dev" }, context(session.id, "plan"))
+        const cancelled = yield* def.execute({ action: "cancel", id: summary.metadata.todos[0]!.id }, context(session.id, "plan"))
+        const listed = yield* def.execute({ action: "list" }, context(session.id, "plan"))
+        const stale = listed.metadata.todos.find((todo) => todo.id === summary.metadata.todos[0]!.id)
+
+        expect(cancelled.title).toBe("task cancelled")
+        expect(listed.metadata.todos).toHaveLength(3)
+        expect(stale?.status).toBe("cancelled")
+        expect(stale?.history).toContain("plan\nTask created.")
+        expect(stale?.history).toContain("plan\nCancelled task.")
+        expect(listed.metadata.todos.find((todo) => todo.content === "detailed replacement one")?.status).toBe("pending")
+        expect(listed.metadata.todos.find((todo) => todo.content === "detailed replacement two")?.status).toBe("pending")
+      }),
+    ),
+  )
+
+  it.live("allows task mode queue maintenance but blocks execution actions", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const todos = yield* Todo.Service
+        const session = yield* sessions.create({ title: "Task mode queue" })
+        yield* todos.update({ sessionID: session.id, todos: [] })
+        const tool = yield* TaskQueueTool
+        const def = yield* tool.init()
+
+        const created = yield* def.execute({ action: "create", content: "queued planning task", priority: "medium" }, context(session.id, "task"))
+        const updated = yield* def.execute({ action: "update", id: created.metadata.todos[0]!.id, priority: "high" }, context(session.id, "task"))
+        const claimed = yield* def.execute({ action: "claim_next" }, context(session.id, "task"))
+        const cancelled = yield* def.execute({ action: "cancel", id: created.metadata.todos[0]!.id }, context(session.id, "task"))
+
+        expect(updated.title).toBe("task updated")
+        expect(updated.metadata.todos[0]?.history).toContain("task\nUpdated task from task mode.")
+        expect(claimed.title).toBe("task execution blocked in task mode")
+        expect(cancelled.title).toBe("task cancelled")
+        expect(cancelled.metadata.todos[0]?.status).toBe("cancelled")
       }),
     ),
   )
@@ -237,6 +343,25 @@ describe("tool.taskqueue", () => {
     ),
   )
 
+  it.live("keeps explicit final verification tasks assigned to build", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const todos = yield* Todo.Service
+        const session = yield* sessions.create({ title: "Final verification" })
+        yield* todos.update({ sessionID: session.id, todos: [] })
+        const tool = yield* TaskQueueTool
+        const def = yield* tool.init()
+
+        const created = yield* def.execute({ action: "create", content: "Final verification: from packages/opencode run bun typecheck and agreed package-level checks", priority: "high", assigned_agent: "build" }, context(session.id, "general"))
+        const claimed = yield* def.execute({ action: "claim_next" }, context(session.id, "build"))
+
+        expect(created.metadata.todos[0]?.assignedAgent).toBe("build")
+        expect(claimed.metadata.claimed?.content).toContain("Final verification")
+      }),
+    ),
+  )
+
   it.live("routes development phrases with build terms away from build", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
@@ -302,7 +427,29 @@ describe("tool.taskqueue", () => {
         expect(stillActive?.claimedBy).toBe("general")
 
         const completed = yield* def.execute({ action: "complete", id: claimed.metadata.claimed!.id }, context(session.id, "general"))
+        expect(completed.metadata.todos).toHaveLength(1)
         expect(completed.metadata.todos.find((todo) => todo.id === claimed.metadata.claimed!.id)?.status).toBe("completed")
+        expect(completed.output).not.toContain("QA validation queued")
+      }),
+    ),
+  )
+
+  it.live("cancels pending tasks by id without requiring a claim", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const todos = yield* Todo.Service
+        const session = yield* sessions.create({ title: "Pending cancel" })
+        yield* todos.update({ sessionID: session.id, todos: [] })
+        const tool = yield* TaskQueueTool
+        const def = yield* tool.init()
+
+        const created = yield* def.execute({ action: "create", content: "stale validation task", priority: "medium", assigned_agent: "qa" }, context(session.id, "general"))
+        const cancelled = yield* def.execute({ action: "cancel", id: created.metadata.todos[0]!.id }, context(session.id, "general"))
+
+        expect(cancelled.title).toBe("task cancelled")
+        expect(cancelled.metadata.todos[0]?.status).toBe("cancelled")
+        expect(cancelled.metadata.todos[0]?.completedBy).toBe("general")
       }),
     ),
   )
@@ -325,6 +472,30 @@ describe("tool.taskqueue", () => {
         expect(history).toContain("general\nTask created.")
         expect(history).toContain("general\nClaimed task.")
         expect(history).toContain("general\nCompleted task.")
+        expect(completed.output).toContain("timeline:")
+        expect(completed.output).toContain("+->")
+      }),
+    ),
+  )
+
+  it.live("keeps one task id through explicit QA handoffs", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const todos = yield* Todo.Service
+        const session = yield* sessions.create({ title: "Single handoff task" })
+        yield* todos.update({ sessionID: session.id, todos: [] })
+        const tool = yield* TaskQueueTool
+        const def = yield* tool.init()
+
+        yield* def.execute({ action: "create", content: "validate tui hover state", priority: "high", assigned_agent: "qa" }, context(session.id, "general"))
+        const qa = yield* def.execute({ action: "claim_next" }, context(session.id, "qa"))
+        const bounced = yield* def.execute({ action: "create", content: "hover still leaks mouse events", priority: "high", assigned_agent: "tui-dev" }, context(session.id, "qa"))
+
+        expect(bounced.metadata.todos.map((todo) => todo.id)).toEqual([qa.metadata.claimed!.id])
+        expect(bounced.metadata.todos[0]?.assignedAgent).toBe("tui-dev")
+        expect(bounced.metadata.todos[0]?.bounceCount).toBe(1)
+        expect(bounced.output).toContain("timeline:")
       }),
     ),
   )
@@ -348,7 +519,7 @@ describe("tool.taskqueue", () => {
     ),
   )
 
-  it.live("blocks after four QA to build bounces without task IDs in the issue text", () =>
+  it.live("blocks after four manual QA handoffs without task IDs in the issue text", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const sessions = yield* Session.Service
@@ -362,37 +533,38 @@ describe("tool.taskqueue", () => {
 
         const firstBuild = yield* def.execute({ action: "claim_next" }, context(session.id, "build"))
         yield* def.execute({ action: "complete", id: firstBuild.metadata.claimed!.id }, context(session.id, "build"))
+        yield* todos.handoff({ sessionID: session.id, id: firstBuild.metadata.claimed!.id!, agent: "user", assignedAgent: "qa", status: "pending", message: "Manual QA requested." })
 
         const firstQA = yield* def.execute({ action: "claim_next" }, context(session.id, "qa"))
         const firstBounce = yield* def.execute({ action: "create", content: "same problem still failing", priority: "high", assigned_agent: "build" }, context(session.id, "qa"))
-        yield* def.execute({ action: "complete", id: firstQA.metadata.claimed!.id }, context(session.id, "qa"))
 
         const secondBuild = yield* def.execute({ action: "claim_next" }, context(session.id, "build"))
         yield* def.execute({ action: "complete", id: secondBuild.metadata.claimed!.id }, context(session.id, "build"))
+        yield* todos.handoff({ sessionID: session.id, id: firstBuild.metadata.claimed!.id!, agent: "user", assignedAgent: "qa", status: "pending", message: "Manual QA requested." })
 
         const secondQA = yield* def.execute({ action: "claim_next" }, context(session.id, "qa"))
         const secondBounce = yield* def.execute({ action: "create", content: "same problem still failing", priority: "high", assigned_agent: "build" }, context(session.id, "qa"))
-        yield* def.execute({ action: "complete", id: secondQA.metadata.claimed!.id }, context(session.id, "qa"))
 
         const thirdBuild = yield* def.execute({ action: "claim_next" }, context(session.id, "build"))
         yield* def.execute({ action: "complete", id: thirdBuild.metadata.claimed!.id }, context(session.id, "build"))
+        yield* todos.handoff({ sessionID: session.id, id: firstBuild.metadata.claimed!.id!, agent: "user", assignedAgent: "qa", status: "pending", message: "Manual QA requested." })
 
         const thirdQA = yield* def.execute({ action: "claim_next" }, context(session.id, "qa"))
         const thirdBounce = yield* def.execute({ action: "create", content: "same problem still failing", priority: "high", assigned_agent: "build" }, context(session.id, "qa"))
-        yield* def.execute({ action: "complete", id: thirdQA.metadata.claimed!.id }, context(session.id, "qa"))
 
         const fourthBuild = yield* def.execute({ action: "claim_next" }, context(session.id, "build"))
         yield* def.execute({ action: "complete", id: fourthBuild.metadata.claimed!.id }, context(session.id, "build"))
+        yield* todos.handoff({ sessionID: session.id, id: firstBuild.metadata.claimed!.id!, agent: "user", assignedAgent: "qa", status: "pending", message: "Manual QA requested." })
 
         const fourthQA = yield* def.execute({ action: "claim_next" }, context(session.id, "qa"))
         const fourthBounce = yield* def.execute({ action: "create", content: "same problem still failing", priority: "high", assigned_agent: "build" }, context(session.id, "qa"))
 
-        expect(firstBounce.metadata.todos.find((todo) => todo.content === "same problem still failing")?.bounceCount).toBe(1)
-        expect(secondBounce.metadata.todos.find((todo) => todo.id === secondBounce.metadata.next?.id)?.bounceCount).toBe(2)
-        expect(thirdBounce.metadata.todos.find((todo) => todo.id === thirdBounce.metadata.next?.id)?.bounceCount).toBe(3)
-        expect(fourthBounce.metadata.todos.find((todo) => todo.content.includes("Human decision required"))?.status).toBe("blocked")
-        expect(fourthBounce.metadata.todos.find((todo) => todo.content.includes("Human decision required"))?.bounceCount).toBe(4)
-        expect(fourthBounce.metadata.todos.find((todo) => todo.content.includes("Human decision required"))?.assignedAgent).toBeUndefined()
+        expect(firstBounce.metadata.todos.find((todo) => todo.id === firstBuild.metadata.claimed?.id)?.bounceCount).toBe(1)
+        expect(secondBounce.metadata.todos.find((todo) => todo.id === firstBuild.metadata.claimed?.id)?.bounceCount).toBe(2)
+        expect(thirdBounce.metadata.todos.find((todo) => todo.id === firstBuild.metadata.claimed?.id)?.bounceCount).toBe(3)
+        expect(fourthBounce.metadata.todos.find((todo) => todo.id === firstBuild.metadata.claimed?.id)?.status).toBe("blocked")
+        expect(fourthBounce.metadata.todos.find((todo) => todo.id === firstBuild.metadata.claimed?.id)?.bounceCount).toBe(4)
+        expect(fourthBounce.metadata.todos.find((todo) => todo.id === firstBuild.metadata.claimed?.id)?.assignedAgent).toBeUndefined()
         expect(fourthQA.metadata.claimed?.bounceCount).toBe(3)
       }),
     ),

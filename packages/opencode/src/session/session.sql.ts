@@ -106,6 +106,54 @@ export const TodoTable = sqliteTable(
   ],
 )
 
+export const TillDoneRunnerTable = sqliteTable(
+  "tilldone_runner",
+  {
+    session_id: text().$type<SessionID>().primaryKey(),
+    project_id: text()
+      .$type<ProjectID>()
+      .notNull()
+      .references(() => ProjectTable.id, { onDelete: "cascade" }),
+    status: text().notNull(),
+    max_workers: integer().notNull(),
+    started_at: integer(),
+    stopped_at: integer(),
+    stop_requested_at: integer(),
+    abort_requested_at: integer(),
+    error: text(),
+    ...Timestamps,
+  },
+  (table) => [index("tilldone_runner_project_idx").on(table.project_id)],
+)
+
+export const TillDoneWorkerTable = sqliteTable(
+  "tilldone_worker",
+  {
+    id: text().primaryKey(),
+    runner_session_id: text().$type<SessionID>().notNull(),
+    project_id: text()
+      .$type<ProjectID>()
+      .notNull()
+      .references(() => ProjectTable.id, { onDelete: "cascade" }),
+    slot: integer().notNull(),
+    task_id: text(),
+    agent: text(),
+    session_id: text().$type<SessionID>(),
+    status: text().notNull(),
+    started_at: integer(),
+    updated_at: integer(),
+    completed_at: integer(),
+    error: text(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("tilldone_worker_runner_session_idx").on(table.runner_session_id),
+    index("tilldone_worker_project_idx").on(table.project_id),
+    index("tilldone_worker_task_idx").on(table.task_id),
+    index("tilldone_worker_status_idx").on(table.status),
+  ],
+)
+
 export const SessionEntryTable = sqliteTable(
   "session_entry",
   {

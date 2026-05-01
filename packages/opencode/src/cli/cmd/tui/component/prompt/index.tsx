@@ -472,8 +472,9 @@ export function Prompt(props: PromptProps) {
         },
       },
       {
-        title: "Specialist task",
+        title: "Task mode request",
         value: "prompt.specialist-task",
+        description: "Convert this request into a queued task without executing it",
         category: "Prompt",
         slash: {
           name: "task",
@@ -1062,6 +1063,12 @@ export function Prompt(props: PromptProps) {
     animationsEnabled,
   )
   const borderHighlight = createMemo(() => tint(theme.border, highlight(), agentMetaAlpha()))
+  const agentModeDescription = (name: string) => {
+    if (name === "task") return "requests are converted into queued tasks; not executed"
+    if (name === "plan") return "plans only"
+    if (name === "build") return "executes work"
+    return undefined
+  }
 
   const placeholderText = createMemo(() => {
     if (props.showPlaceholder === false) return undefined
@@ -1339,8 +1346,15 @@ export function Prompt(props: PromptProps) {
                   {(agent) => (
                     <>
                       <text fg={fadeColor(highlight(), agentMetaAlpha())}>
-                        {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
+                        {store.mode === "shell" ? "Shell mode" : `${Locale.titlecase(agent().name)} mode`}
                       </text>
+                      <Show when={store.mode === "normal" && agentModeDescription(agent().name)}>
+                        {(description) => (
+                          <text fg={fadeColor(theme.textMuted, agentMetaAlpha())} wrapMode="none" overflow="hidden">
+                            · {description()}
+                          </text>
+                        )}
+                      </Show>
                       <Show when={store.mode === "normal"}>
                         <box flexDirection="row" gap={1}>
                           <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>·</text>

@@ -1988,12 +1988,15 @@ export type CodexQuotaInfo = {
 }
 
 export type TillDoneWorkerInfo = {
+  slot?: number
   agent: string
   status: string
   taskID?: string
   sessionID?: string
   error?: string
   startedAt?: number
+  updatedAt?: number
+  completedAt?: number
 }
 
 export type TillDoneStatus = {
@@ -2003,6 +2006,7 @@ export type TillDoneStatus = {
   maxWorkers: number
   startedAt?: number
   stoppedAt?: number
+  error?: string
   workers: Array<TillDoneWorkerInfo>
 }
 

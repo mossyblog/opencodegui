@@ -6,9 +6,12 @@ export interface TodoItemProps {
   assignedAgent?: string
 }
 
+export const todoItemColor = <T,>(props: Pick<TodoItemProps, "status" | "assignedAgent">, theme: { textMuted: T; markdownLink: T; warning: T }) =>
+  props.status === "completed" || props.status === "cancelled" ? theme.textMuted : props.assignedAgent === "qa" ? theme.markdownLink : props.status === "in_progress" ? theme.warning : theme.textMuted
+
 export function TodoItem(props: TodoItemProps) {
   const { theme } = useTheme()
-  const fg = () => (props.status === "in_progress" ? theme.warning : props.status === "pending" && props.assignedAgent === "qa" ? theme.markdownLink : theme.textMuted)
+  const fg = () => todoItemColor(props, theme)
 
   return (
     <box flexDirection="row" gap={0}>

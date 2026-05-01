@@ -1,6 +1,6 @@
-import { TextareaRenderable, TextAttributes } from "@opentui/core"
+import { TextareaRenderable } from "@opentui/core"
 import { useTheme } from "../context/theme"
-import { useDialog, type DialogContext } from "./dialog"
+import { DialogContent, DialogFooter, DialogHeader, useDialog, type DialogContext } from "./dialog"
 import { createStore } from "solid-js/store"
 import { onMount, Show } from "solid-js"
 import { useKeyboard } from "@opentui/solid"
@@ -77,15 +77,8 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
   })
 
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
-          Export Options
-        </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
-          esc
-        </text>
-      </box>
+    <DialogContent>
+      <DialogHeader title="Export Options" onClose={() => dialog.clear()} />
       <box gap={1}>
         <box>
           <text fg={theme.text}>Filename:</text>
@@ -164,19 +157,21 @@ export function DialogExportOptions(props: DialogExportOptionsProps) {
           <text fg={store.active === "openWithoutSaving" ? theme.primary : theme.text}>Open without saving</text>
         </box>
       </box>
-      <Show when={store.active !== "filename"}>
-        <text fg={theme.textMuted} paddingBottom={1}>
-          Press <span style={{ fg: theme.text }}>space</span> to toggle, <span style={{ fg: theme.text }}>return</span>{" "}
-          to confirm
-        </text>
-      </Show>
-      <Show when={store.active === "filename"}>
-        <text fg={theme.textMuted} paddingBottom={1}>
-          Press <span style={{ fg: theme.text }}>return</span> to confirm, <span style={{ fg: theme.text }}>tab</span>{" "}
-          for options
-        </text>
-      </Show>
-    </box>
+      <DialogFooter justifyContent="space-between">
+        <Show when={store.active !== "filename"}>
+          <text fg={theme.textMuted}>
+            Press <span style={{ fg: theme.text }}>space</span> to toggle, <span style={{ fg: theme.text }}>return</span>{" "}
+            to confirm
+          </text>
+        </Show>
+        <Show when={store.active === "filename"}>
+          <text fg={theme.textMuted}>
+            Press <span style={{ fg: theme.text }}>return</span> to confirm, <span style={{ fg: theme.text }}>tab</span>{" "}
+            for options
+          </text>
+        </Show>
+      </DialogFooter>
+    </DialogContent>
   )
 }
 

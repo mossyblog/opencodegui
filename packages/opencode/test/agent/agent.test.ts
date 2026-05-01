@@ -29,11 +29,43 @@ test("returns default native agents when no config", async () => {
       const names = agents.map((a) => a.name)
       expect(names).toContain("build")
       expect(names).toContain("plan")
+      expect(names).toContain("task")
       expect(names).toContain("general")
       expect(names).toContain("explore")
       expect(names).toContain("compaction")
       expect(names).toContain("title")
       expect(names).toContain("summary")
+    },
+  })
+})
+
+test("task agent is a selectable primary mode", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const task = await load(tmp.path, (svc) => svc.get("task"))
+      expect(task).toBeDefined()
+      expect(task?.mode).toBe("primary")
+      expect(task?.native).toBe(true)
+      expect(task?.hidden).toBeUndefined()
+      expect(task?.prompt).toContain("You are in Task mode.")
+      expect(task?.prompt).toContain("Build mode executes implementation work.")
+      expect(task?.prompt).toContain("Plan mode researches and plans without executing.")
+      expect(task?.prompt).toContain("Task mode converts requests into queued task chunks")
+      expect(task?.prompt).toContain("Use taskqueue to create clear, executable tasks")
+      expect(task?.prompt).toContain("Split multi-part requests into separate executable chunks")
+      expect(task?.prompt).toContain("sellable chunks")
+      expect(task?.prompt).toContain("Do not implement the request directly.")
+      expect(task?.prompt).toContain("Do not create a single summary task")
+      expect(task?.prompt).toContain("Preserve explicit user constraints")
+      expect(task?.prompt).toContain("update or cancel the superseded pending summary task")
+      expect(task?.prompt).toContain("Do not claim tasks")
+      expect(evalPerm(task, "taskqueue")).toBe("allow")
+      expect(evalPerm(task, "edit")).toBe("deny")
+      expect(evalPerm(task, "bash")).toBe("deny")
+      expect(evalPerm(task, "task")).toBe("deny")
+      expect(evalPerm(task, "todowrite")).toBe("deny")
     },
   })
 })
@@ -713,13 +745,14 @@ test("defaultAgent throws when all primary agents are disabled", async () => {
       agent: {
         build: { disable: true },
         plan: { disable: true },
+        task: { disable: true },
       },
     },
   })
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      // build and plan are disabled, no primary-capable agents remain
+      // build, plan, and task are disabled, so no primary-capable agents remain
       await expect(load(tmp.path, (svc) => svc.defaultAgent())).rejects.toThrow("no primary visible agent found")
     },
   })

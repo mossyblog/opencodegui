@@ -4,13 +4,13 @@ import DESCRIPTION from "./taskqueue.txt"
 import { Todo } from "../session/todo"
 import { Session } from "@/session/session"
 
-const Action = Schema.Literals(["create", "list", "claim_next", "complete", "cancel", "reassign"])
+const Action = Schema.Literals(["create", "list", "claim_next", "complete", "cancel", "reassign", "update"])
 
 export const Parameters = Schema.Struct({
   action: Action.annotate({ description: "Queue action to perform" }),
-  id: Schema.optional(Schema.String).annotate({ description: "Task id for complete or cancel actions" }),
-  content: Schema.optional(Schema.String).annotate({ description: "Task content for create" }),
-  priority: Schema.optional(Todo.Priority).annotate({ description: "Task priority for create" }),
+  id: Schema.optional(Schema.String).annotate({ description: "Task id for complete, cancel, reassign, or update actions" }),
+  content: Schema.optional(Schema.String).annotate({ description: "Task content for create or update" }),
+  priority: Schema.optional(Todo.Priority).annotate({ description: "Task priority for create or update" }),
   assigned_agent: Schema.optional(Schema.String).annotate({ description: "Agent assigned to this task" }),
 })
 
@@ -25,9 +25,19 @@ const fmt = (todo: Todo.Info) =>
     `- ${todo.id ?? "unknown"} [${todo.status}] (${todo.priority}) ${todo.content}`,
     todo.assignedAgent ? `  assigned_agent: ${todo.assignedAgent}` : undefined,
     todo.claimedBy ? `  claimed_by: ${todo.claimedBy}` : undefined,
+    todo.history ? timeline(todo.history) : undefined,
   ]
     .filter(Boolean)
     .join("\n")
+
+const timeline = (history: string) =>
+  [
+    "  timeline:",
+    ...history.split("\n\n### ").map((item, index) => {
+      const lines = item.replace(/^### /, "").split("\n")
+      return `  ${index === 0 ? "+" : "|"}-> ${lines[0]}${lines.slice(1).length ? `: ${lines.slice(1).join(" / ")}` : ""}`
+    }),
+  ].join("\n")
 
 const summary = (todos: Todo.Info[]) => {
   const pending = todos.filter((todo) => todo.status === "pending").length
@@ -37,6 +47,9 @@ const summary = (todos: Todo.Info[]) => {
 }
 
 const buildTaskPatterns = [
+  /\bfinal[- ](?:verification|build)\b/,
+  /\b(?:final|post[- ]implementation)\b.*\b(?:verification|build|typecheck|package[- ]level checks?)\b/,
+  /\b(?:verification|build|typecheck|package[- ]level checks?)\b.*\b(?:final|post[- ]implementation)\b/,
   /\bbuild[- ]system\b/,
   /\bbuild script\b/,
   /\bbundler\b/,
@@ -51,8 +64,9 @@ const buildTaskPatterns = [
   /\bcompile\b.*\b(?:build|bundler|package|packaging|ci|pipeline)\b/,
 ]
 
-const buildBounce = (source?: Todo.Info) => source?.content.toLowerCase().includes("validate build's completed work")
-const buildTask = (content: string, source?: Todo.Info) => buildTaskPatterns.some((item) => item.test(content.toLowerCase())) || buildBounce(source)
+const buildBounce = (source?: Todo.Info) => source?.assignedAgent === "build"
+const buildTask = (content: string, source?: Todo.Info) =>
+  buildTaskPatterns.some((item) => item.test(content.toLowerCase())) || buildBounce(source) || (source ? buildTaskPatterns.some((item) => item.test(source.content.toLowerCase())) : false)
 
 const assignAgent = (content: string) => {
   const lower = content.toLowerCase()
@@ -81,14 +95,12 @@ const activeForAgent = (todos: Todo.Info[], agent: string) =>
     (todo.status === "in_progress" || todo.status === "claimed") && todo.claimedBy === agent
   )
 
-const qaTaskContent = (task: Todo.Info, agent: string) =>
-  `Validate ${agent}'s completed work for task ${task.id ?? "unknown"}: ${task.content}`
-
 const priority = (value: string): Todo.Priority => value === "high" ? "high" : value === "low" ? "low" : "medium"
 const entry = (agent: string, message: string) => `### ${new Date().toISOString()} ${agent}\n${message}`
 const referencedTaskID = (content: string) => /task\s+([0-9A-Z]{26})/.exec(content)?.[1]
 const blockedInPlan = (action: Schema.Schema.Type<typeof Parameters>["action"]) =>
-  action === "claim_next" || action === "complete" || action === "cancel" || action === "reassign"
+  action === "claim_next" || action === "complete" || action === "reassign"
+const maintenanceAgent = (agent: string) => agent === "plan" || agent === "task"
 
 export const TaskQueueTool = Tool.define<typeof Parameters, Metadata, Todo.Service | Session.Service>(
   "taskqueue",
@@ -106,12 +118,12 @@ export const TaskQueueTool = Tool.define<typeof Parameters, Metadata, Todo.Servi
           const session = yield* sessions.get(ctx.sessionID)
           const sessionID = session.parentID ?? ctx.sessionID
 
-          if (agent === "plan" && blockedInPlan(params.action)) {
+          if (maintenanceAgent(agent) && blockedInPlan(params.action)) {
             const todos = yield* todo.get(sessionID)
             return {
-              title: "task execution blocked in plan mode",
+              title: `task execution blocked in ${agent} mode`,
               output: [
-                "Plan mode can create and list tasks, but it cannot claim, complete, or cancel queued work.",
+                `${agent === "plan" ? "Plan" : "Task"} mode can create, list, update, and cancel pending tasks, but it cannot claim, complete, reassign, or cancel active work.`,
                 "Switch to build mode before starting task execution.",
                 "",
                 `Queue: ${summary(todos)}`,
@@ -129,17 +141,37 @@ export const TaskQueueTool = Tool.define<typeof Parameters, Metadata, Todo.Servi
             const bounceCount = qaHandoff ? (source?.bounceCount ?? 0) + 1 : 0
             const blocked = bounceCount > 3
             const assigned = blocked ? undefined : assignedAgent(params.content, params.assigned_agent, source)
+            if (qaHandoff && source?.id) {
+              const changed = yield* todo.handoff({
+                sessionID,
+                id: source.id,
+                agent,
+                assignedAgent: assigned,
+                status: blocked ? "blocked" : "pending",
+                priority: params.priority ?? priority(source.priority),
+                bounceCount,
+                message: blocked
+                  ? `Blocked after ${bounceCount} manual QA handoffs. Human decision required: ${params.content}`
+                  : `Sent back to ${assigned ?? "unassigned"}: ${params.content}`,
+              })
+              const todos = yield* todo.get(sessionID)
+              return {
+                title: changed ? blocked ? "task blocked" : "task reassigned" : "task not found",
+                output: [changed ? [blocked ? "Task blocked:" : "Task reassigned:", fmt(changed)].join("\n") : `Task not found: ${source.id}`, "", `Queue: ${summary(todos)}`].join("\n"),
+                metadata: { todos, next: todos.find((item) => item.status === "pending") },
+              }
+            }
             const created = yield* todo.create({
               sessionID,
               content: blocked
-                ? `Blocked after ${bounceCount} QA/dev handoffs. Human decision required: ${params.content}`
+                ? `Blocked after ${bounceCount} manual QA handoffs. Human decision required: ${params.content}`
                 : params.content,
               priority: params.priority ?? "medium",
               createdBy: agent,
               assignedAgent: assigned,
               status: blocked ? "blocked" : "pending",
               bounceCount,
-              history: [source?.history, entry(agent, blocked ? "Blocked because QA/dev handoff limit was exceeded." : "Task created.")]
+              history: [source?.history, entry(agent, blocked ? "Blocked because manual QA handoff limit was exceeded." : "Task created.")]
                 .filter(Boolean)
                 .join("\n\n"),
             })
@@ -202,31 +234,74 @@ export const TaskQueueTool = Tool.define<typeof Parameters, Metadata, Todo.Servi
             }
           }
 
+          if (params.action === "update") {
+            if (!params.id) return yield* Effect.die(new Error("taskqueue update requires id"))
+            const existing = yield* todo.get(sessionID)
+            const current = existing.find((item) => item.id === params.id)
+            if (!current) {
+              return {
+                title: "task not found",
+                output: [`Task not found: ${params.id}`, "", `Queue: ${summary(existing)}`].join("\n"),
+                metadata: { todos: existing },
+              }
+            }
+            if (current.status !== "pending") {
+              return {
+                title: "task update blocked",
+                output: ["Only pending tasks can be updated without claiming them.", fmt(current), "", `Queue: ${summary(existing)}`].join("\n"),
+                metadata: { todos: existing },
+              }
+            }
+            const changed = yield* todo.updatePending({
+              sessionID,
+              id: params.id,
+              agent,
+              content: params.content,
+              priority: params.priority,
+              assignedAgent: params.assigned_agent === undefined ? current.assignedAgent : assignedAgent(params.content ?? current.content, params.assigned_agent, current),
+            })
+            const todos = yield* todo.get(sessionID)
+            return {
+              title: changed ? "task updated" : "task not found",
+              output: [changed ? ["Task updated:", fmt(changed)].join("\n") : `Task not found: ${params.id}`, "", `Queue: ${summary(todos)}`].join("\n"),
+              metadata: { todos },
+            }
+          }
+
           if (params.action === "complete" || params.action === "cancel") {
             if (!params.id) return yield* Effect.die(new Error(`taskqueue ${params.action} requires id`))
+            if (maintenanceAgent(agent)) {
+              const existing = yield* todo.get(sessionID)
+              const current = existing.find((item) => item.id === params.id)
+              if (!current) {
+                return {
+                  title: "task not found",
+                  output: [`Task not found: ${params.id}`, "", `Queue: ${summary(existing)}`].join("\n"),
+                  metadata: { todos: existing },
+                }
+              }
+              if (current.status !== "pending") {
+                return {
+                  title: `task execution blocked in ${agent} mode`,
+                  output: [
+                    `${agent === "plan" ? "Plan" : "Task"} mode can cancel pending tasks, but it cannot cancel active queued work.`,
+                    fmt(current),
+                    "",
+                    `Queue: ${summary(existing)}`,
+                  ].join("\n"),
+                  metadata: { todos: existing },
+                }
+              }
+            }
             const result = params.action === "complete"
               ? yield* todo.complete({ sessionID, id: params.id, agent })
               : yield* todo.cancel({ sessionID, id: params.id, agent })
             const changed = "completed" in result ? result.completed : result.cancelled
-            const qaTask = params.action === "complete" && changed && agent !== "qa"
-              ? yield* todo.create({
-                  sessionID,
-                  content: qaTaskContent(changed, agent),
-                  priority: changed.priority === "low" ? "medium" : priority(changed.priority),
-                  createdBy: "taskqueue",
-                  assignedAgent: "qa",
-                  bounceCount: changed.bounceCount ?? 0,
-                  history: [changed.history, entry("taskqueue", `Queued QA validation for ${agent}'s completed work.`)]
-                    .filter(Boolean)
-                    .join("\n\n"),
-                })
-              : undefined
             const todos = yield* todo.get(sessionID)
             return {
-              title: changed ? `task ${params.action}d` : "task not found",
+              title: changed ? params.action === "complete" ? "task completed" : "task cancelled" : "task not found",
               output: [
                 changed ? [`Task ${params.action}d:`, fmt(changed)].join("\n") : `Task not found: ${params.id}`,
-                qaTask ? ["", "QA validation queued:", fmt(qaTask)].join("\n") : "",
                 "",
                 `Queue: ${summary(todos)}`,
               ]

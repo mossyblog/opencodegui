@@ -1,9 +1,8 @@
-import { useTerminalDimensions } from "@opentui/solid"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import type { MouseEvent as TuiMouseEvent, RGBA } from "@opentui/core"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import type { Todo } from "@opencode-ai/sdk/v2"
-import { useDialog } from "@tui/ui/dialog"
+import { DialogContent, DialogFooter, DialogHeader, useDialog } from "@tui/ui/dialog"
 import { useTheme } from "@tui/context/theme"
 import { useSync } from "@tui/context/sync"
 import { useLocal } from "@tui/context/local"
@@ -29,15 +28,15 @@ export function DialogKanban(props: { sessionID: string }) {
   const dimensions = useTerminalDimensions()
   const todos = createMemo(() => (sync.data.todo[props.sessionID] ?? []) as QueueTask[])
   const height = createMemo(() => Math.max(12, Math.floor(dimensions().height * 0.8) - 6))
-  const isTodoQaTask = (task: QueueTask) => task.status === "pending" && task.assignedAgent === "qa"
+  const isTodoQaTask = (task: QueueTask) => task.assignedAgent === "qa"
   const taskColor = (task: QueueTask) =>
-    task.status === "in_progress" || task.status === "claimed"
-      ? theme.success
-      : task.status === "completed" || task.status === "cancelled"
-        ? theme.textMuted
-        : isTodoQaTask(task)
-          ? theme.markdownLink
-        : local.agent.color("plan")
+    task.status === "completed" || task.status === "cancelled"
+      ? theme.textMuted
+      : isTodoQaTask(task)
+        ? theme.markdownLink
+        : task.status === "in_progress" || task.status === "claimed"
+          ? theme.success
+          : local.agent.color("plan")
   const saveTaskAssignment = async (task: QueueTask, assignedAgent: string | null) => {
     if (!task.id) return
     const result = await sdk.client.session.todoEdit({ sessionID: props.sessionID, id: task.id, content: task.content, assignedAgent })
@@ -46,24 +45,20 @@ export function DialogKanban(props: { sessionID: string }) {
   }
 
   return (
-    <box gap={1} paddingLeft={2} paddingRight={2} paddingBottom={1} height={height()}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.text}>
-          <b>TillDone Kanban</b>
-        </text>
-        <box onMouseDown={() => dialog.clear()} paddingLeft={1} paddingRight={1}>
-          <text fg={theme.textMuted}>esc</text>
-        </box>
-      </box>
+    <DialogContent>
+      <DialogHeader title="TillDone Kanban" onClose={() => dialog.clear()} />
       <box flexDirection="row" gap={1} flexGrow={1}>
         <For each={columns}>
           {(column) => {
             const tasks = createMemo(() => todos().filter(column.match))
             return (
-              <box border borderColor={theme.border} paddingLeft={1} paddingRight={1} flexGrow={1} flexBasis={0}>
-                <text fg={theme.text} wrapMode="none" overflow="hidden">
-                  <b>{column.title}</b> <span style={{ fg: theme.textMuted }}>{tasks().length}</span>
-                </text>
+              <box border borderColor={theme.border} paddingLeft={1} paddingRight={1} flexGrow={1} flexBasis={0} height={height()}>
+                <box flexDirection="row" justifyContent="space-between" paddingBottom={1}>
+                  <text fg={theme.text} wrapMode="none" overflow="hidden">
+                    <b>{column.title}</b>
+                  </text>
+                  <text fg={theme.textMuted}>{tasks().length}</text>
+                </box>
                 <scrollbox flexGrow={1}>
                   <box gap={0}>
                     <For each={tasks()}>
@@ -72,6 +67,7 @@ export function DialogKanban(props: { sessionID: string }) {
                           border={["left"]}
                           borderColor={theme.backgroundElement}
                           paddingLeft={1}
+                          paddingRight={1}
                           onMouseUp={(event) => {
                             event.stopPropagation()
                             dialog.replace(() => <TaskAssignmentDialog task={task} onClose={() => dialog.clear()} onSave={saveTaskAssignment} />)
@@ -91,7 +87,7 @@ export function DialogKanban(props: { sessionID: string }) {
           }}
         </For>
       </box>
-    </box>
+    </DialogContent>
   )
 }
 
@@ -125,15 +121,8 @@ function TaskAssignmentDialog(props: { task: QueueTask; onClose: () => void; onS
   })
 
   return (
-    <box gap={1} paddingLeft={2} paddingRight={2} paddingBottom={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text fg={theme.text}>
-          <b>Task</b>
-        </text>
-        <box onMouseDown={props.onClose} paddingLeft={1} paddingRight={1}>
-          <text fg={theme.textMuted}>X</text>
-        </box>
-      </box>
+    <DialogContent>
+      <DialogHeader title="Task" onClose={props.onClose} closeLabel="X" />
       <text fg={theme.text} wrapMode="word" overflow="hidden">
         {props.task.content}
       </text>
@@ -168,17 +157,13 @@ function TaskAssignmentDialog(props: { task: QueueTask; onClose: () => void; onS
       <Show when={state() === "failed"}>
         <text fg={theme.error}>Could not save task.</text>
       </Show>
-      <box flexDirection="row" justifyContent="space-between">
-        <box flexDirection="row" gap={1}>
-          <text fg={theme.textMuted}>|</text>
-        </box>
+      <DialogFooter>
         <box flexDirection="row" gap={1}>
           <Button label="Cancel" fg={theme.text} onClick={props.onClose} />
           <Button label="Save" fg={state() === "working" ? theme.textMuted : theme.text} onClick={() => void save()} />
-          <text fg={theme.textMuted}>|</text>
         </box>
-      </box>
-    </box>
+      </DialogFooter>
+    </DialogContent>
   )
 }
 

@@ -1,7 +1,7 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { batch, createContext, Show, useContext, type JSX, type ParentProps } from "solid-js"
+import { batch, createContext, createSignal, Show, useContext, type JSX, type ParentProps } from "solid-js"
 import { useTheme } from "@tui/context/theme"
-import { MouseButton, Renderable, RGBA } from "@opentui/core"
+import { MouseButton, Renderable, RGBA, TextAttributes } from "@opentui/core"
 import { createStore } from "solid-js/store"
 import { useToast } from "./toast"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -60,6 +60,65 @@ export function Dialog(
       >
         {props.children}
       </box>
+    </box>
+  )
+}
+
+export function DialogContent(props: ParentProps<{ gap?: number }>) {
+  return (
+    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={props.gap ?? 1}>
+      {props.children}
+    </box>
+  )
+}
+
+export function DialogHeader(props: { title: string; onClose: () => void; closeLabel?: string }) {
+  const { theme } = useTheme()
+  return (
+    <>
+      <box flexDirection="row" justifyContent="space-between" alignItems="center">
+        <text attributes={TextAttributes.BOLD} fg={theme.text} wrapMode="none" overflow="hidden">
+          {props.title}
+        </text>
+        <box onMouseUp={props.onClose} paddingLeft={1} paddingRight={1}>
+          <text fg={theme.textMuted}>{props.closeLabel ?? "esc"}</text>
+        </box>
+      </box>
+      <box height={1} border={["bottom"]} borderColor={theme.borderSubtle} />
+    </>
+  )
+}
+
+export function DialogFooter(props: ParentProps<{ justifyContent?: "space-between" | "flex-end" }>) {
+  return (
+    <box flexDirection="row" justifyContent={props.justifyContent ?? "flex-end"} gap={1} paddingTop={1}>
+      {props.children}
+    </box>
+  )
+}
+
+export function DialogButton(props: { label: string; active?: boolean; onClick: () => void }) {
+  const { theme } = useTheme()
+  const [hover, setHover] = createSignal(false)
+  const [down, setDown] = createSignal(false)
+  const background = () => (props.active ? theme.primary : down() ? theme.borderActive : hover() ? theme.border : undefined)
+  return (
+    <box
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={background()}
+      onMouseOver={() => setHover(true)}
+      onMouseOut={() => {
+        setHover(false)
+        setDown(false)
+      }}
+      onMouseDown={() => setDown(true)}
+      onMouseUp={() => {
+        setDown(false)
+        props.onClick()
+      }}
+    >
+      <text fg={props.active ? theme.selectedListItemText : theme.textMuted}>{props.label}</text>
     </box>
   )
 }

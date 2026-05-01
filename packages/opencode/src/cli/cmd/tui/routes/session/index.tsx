@@ -22,7 +22,7 @@ import { useEvent } from "@tui/context/event"
 import { SplitBorder } from "@tui/component/border"
 import { Spinner } from "@tui/component/spinner"
 import { selectedForeground, useTheme } from "@tui/context/theme"
-import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
+import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA, type MouseEvent as TuiMouseEvent } from "@opentui/core"
 import { Prompt, type PromptRef } from "@tui/component/prompt"
 import type {
   AssistantMessage,
@@ -64,7 +64,7 @@ import { DialogConfirm } from "@tui/ui/dialog-confirm"
 import { DialogTimeline } from "./dialog-timeline"
 import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
-import { Sidebar } from "./sidebar"
+import { Sidebar, clampSidebarWidth, getSessionContentWidth, resizeSidebarDragWidth, resizeSidebarWidth, sidebarDefaultWidth } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { LANGUAGE_EXTENSIONS } from "@/lsp/language"
@@ -185,7 +185,9 @@ export function Session() {
 
   const dimensions = useTerminalDimensions()
   const [sidebar, setSidebar] = kv.signal<"auto" | "hide">("sidebar", "auto")
+  const [sidebarWidth, setSidebarWidth] = kv.signal("sidebar_width", sidebarDefaultWidth)
   const [sidebarOpen, setSidebarOpen] = createSignal(false)
+  const [sidebarResizeDrag, setSidebarResizeDrag] = createSignal<{ x: number; width: number; overlay: boolean }>()
   const [sidebarTab, setSidebarTab] = createSignal<"general" | "tilldone" | "knowledge">("general")
   const [conceal, setConceal] = createSignal(true)
   const [showThinking, setShowThinking] = kv.signal("thinking_visibility", true)
@@ -205,13 +207,28 @@ export function Session() {
     return false
   })
   const showTimestamps = createMemo(() => timestamps() === "show")
-  const contentWidth = createMemo(() => dimensions().width - (sidebarVisible() ? 42 : 0) - 4)
+  const clampedSidebarWidth = createMemo(() => clampSidebarWidth(sidebarWidth(), dimensions().width))
+  const clampedOverlaySidebarWidth = createMemo(() => clampSidebarWidth(sidebarWidth(), dimensions().width, true))
+  const contentWidth = createMemo(() => getSessionContentWidth(dimensions().width, sidebarVisible(), clampedSidebarWidth()))
   const providers = createMemo(() => Model.index(sync.data.provider))
 
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
   const toast = useToast()
   const sdk = useSDK()
   const editor = useEditorContext()
+  const startSidebarResize = (event: TuiMouseEvent, width: number, overlay: boolean) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setSidebarResizeDrag({ x: event.x, width, overlay })
+  }
+  const handleSidebarResizeMouse = (event: TuiMouseEvent) => {
+    const drag = sidebarResizeDrag()
+    if (!drag) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.type === "drag") setSidebarWidth(() => resizeSidebarDragWidth(drag.width, drag.x, event.x, dimensions().width, drag.overlay))
+    if (event.type === "up") setSidebarResizeDrag(undefined)
+  }
 
   createEffect(() => {
     const sessionID = route.sessionID
@@ -343,6 +360,12 @@ export function Session() {
         setFeedSessionID(target)
         void sync.session.sync(target)
       })()
+      return
+    }
+    if (evt.ctrl && evt.shift && (evt.name === "left" || evt.name === "right") && sidebarVisible()) {
+      evt.preventDefault()
+      evt.stopPropagation()
+      setSidebarWidth(() => resizeSidebarWidth(clampedSidebarWidth(), evt.name === "left" ? "grow" : "shrink", dimensions().width))
       return
     }
     if (!session()?.parentID) return
@@ -713,7 +736,7 @@ export function Session() {
         local.agent.set("build")
         prompt?.set({
           input:
-            "Orchestrate the TillDone task queue now. First assign every unassigned task to the best suited specialist agent and rank tasks globally and per assigned agent by dependency order; keep build assigned only to build-system tasks, not default implementation work. Then dispatch one task call per available assigned agent in the same response wherever safe, including build and subagents together; build doing work must not block subagents from claiming and working independent tasks. Do not hand agents batches of task descriptions. Each agent must use taskqueue claim_next to claim exactly one assigned task, finish or cancel it, then call claim_next again for the next task. Agents must repeat that one-task-at-a-time loop until no assigned tasks remain. Subagents must not run repo builds; they should run focused tests and package-level typechecks relevant to their claimed task. After returned agent work includes meaningful decisions made, append a concise 1-2 sentence decisions-made entry to .opencode/diary/<date>.md.",
+            "Orchestrate the TillDone task queue now. First assign every unassigned task to the best suited specialist agent and rank tasks globally and per assigned agent by dependency order; keep build assigned only to build-system or explicit final verification tasks, not default implementation work. Then dispatch one task call per available assigned agent in the same response wherever safe, including build and subagents together; build doing work must not block subagents from claiming and working independent tasks. Do not hand agents batches of task descriptions. Each agent must use taskqueue claim_next to claim exactly one assigned task, finish or cancel it, then call claim_next again for the next task. Agents must repeat that one-task-at-a-time loop until no assigned tasks remain. Subagents must not run repo builds; they should run focused tests and package-level typechecks relevant to their claimed task. Normal completion does not create QA automatically; if the user wants QA, prepare/request it manually with qa-prep or an explicitly assigned QA task. After returned agent work includes meaningful decisions made, append a concise 1-2 sentence decisions-made entry to .opencode/diary/<date>.md.",
           parts: [],
         })
         prompt?.submit()
@@ -1332,6 +1355,10 @@ export function Session() {
             <Match when={wide()}>
               <Sidebar
                 sessionID={route.sessionID}
+                width={clampedSidebarWidth()}
+                onResize={(width) => setSidebarWidth(() => clampSidebarWidth(width, dimensions().width))}
+                onResizeStart={startSidebarResize}
+                resizing={!!sidebarResizeDrag()}
                 tab={sidebarTab()}
                 setTab={setSidebarTab}
                 feedSessionID={feedSessionID()}
@@ -1353,6 +1380,11 @@ export function Session() {
               >
                 <Sidebar
                   sessionID={route.sessionID}
+                  width={clampedOverlaySidebarWidth()}
+                  onResize={(width) => setSidebarWidth(() => clampSidebarWidth(width, dimensions().width, true))}
+                  onResizeStart={startSidebarResize}
+                  resizing={!!sidebarResizeDrag()}
+                  overlay
                   tab={sidebarTab()}
                   setTab={setSidebarTab}
                   feedSessionID={feedSessionID()}
@@ -1364,6 +1396,9 @@ export function Session() {
               </box>
             </Match>
           </Switch>
+        </Show>
+        <Show when={sidebarResizeDrag()}>
+          <box position="absolute" top={0} left={0} right={0} bottom={0} zIndex={2500} onMouse={handleSidebarResizeMouse} />
         </Show>
       </box>
     </context.Provider>

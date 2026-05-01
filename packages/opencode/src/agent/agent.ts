@@ -10,6 +10,7 @@ import { ProviderTransform } from "@/provider/transform"
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
+import PROMPT_TASK from "./prompt/task.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import { Permission } from "@/permission"
@@ -143,6 +144,25 @@ export const layer = Layer.effect(
             ),
             mode: "primary",
             native: true,
+          },
+          task: {
+            name: "task",
+            description: "Task mode. Converts requests into queued tasks without executing them.",
+            prompt: PROMPT_TASK,
+            options: {},
+            permission: Permission.merge(
+              defaults,
+              user,
+              Permission.fromConfig({
+                "*": "deny",
+                question: "allow",
+                taskqueue: "allow",
+                edit: "deny",
+              }),
+            ),
+            mode: "primary",
+            native: true,
+            color: "info",
           },
           general: {
             name: "general",

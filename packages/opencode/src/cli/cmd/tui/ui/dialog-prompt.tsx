@@ -1,6 +1,6 @@
-import { TextareaRenderable, TextAttributes } from "@opentui/core"
+import { TextareaRenderable } from "@opentui/core"
 import { useTheme } from "../context/theme"
-import { useDialog, type DialogContext } from "./dialog"
+import { DialogContent, DialogFooter, DialogHeader, useDialog, type DialogContext } from "./dialog"
 import { Show, createEffect, onMount, type JSX } from "solid-js"
 import { useKeyboard } from "@opentui/solid"
 import { Spinner } from "../component/spinner"
@@ -62,15 +62,8 @@ export function DialogPrompt(props: DialogPromptProps) {
   })
 
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
-          {props.title}
-        </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
-          esc
-        </text>
-      </box>
+    <DialogContent>
+      <DialogHeader title={props.title} onClose={() => dialog.clear()} />
       <box gap={1}>
         {props.description}
         <textarea
@@ -94,14 +87,14 @@ export function DialogPrompt(props: DialogPromptProps) {
           <Spinner color={theme.textMuted}>{props.busyText ?? "Working..."}</Spinner>
         </Show>
       </box>
-      <box paddingBottom={1} gap={1} flexDirection="row">
+      <DialogFooter justifyContent="space-between">
         <Show when={!props.busy} fallback={<text fg={theme.textMuted}>processing...</text>}>
           <text fg={theme.text}>
             enter <span style={{ fg: theme.textMuted }}>submit</span>
           </text>
         </Show>
-      </box>
-    </box>
+      </DialogFooter>
+    </DialogContent>
   )
 }
 

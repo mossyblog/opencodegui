@@ -81,6 +81,45 @@ function migrations(dir: string): Journal {
   return sql.sort((a, b) => a.timestamp - b.timestamp)
 }
 
+function repairTillDoneSchema(db: Client) {
+  db.run(`CREATE TABLE IF NOT EXISTS tilldone_runner (
+    session_id text PRIMARY KEY,
+    project_id text NOT NULL,
+    status text NOT NULL,
+    max_workers integer NOT NULL,
+    started_at integer,
+    stopped_at integer,
+    stop_requested_at integer,
+    abort_requested_at integer,
+    error text,
+    time_created integer NOT NULL,
+    time_updated integer NOT NULL,
+    CONSTRAINT fk_tilldone_runner_project_id_project_id_fk FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+  )`)
+  db.run(`CREATE TABLE IF NOT EXISTS tilldone_worker (
+    id text PRIMARY KEY,
+    runner_session_id text NOT NULL,
+    project_id text NOT NULL,
+    slot integer NOT NULL,
+    task_id text,
+    agent text,
+    session_id text,
+    status text NOT NULL,
+    started_at integer,
+    updated_at integer,
+    completed_at integer,
+    error text,
+    time_created integer NOT NULL,
+    time_updated integer NOT NULL,
+    CONSTRAINT fk_tilldone_worker_project_id_project_id_fk FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+  )`)
+  db.run("CREATE INDEX IF NOT EXISTS tilldone_runner_project_idx ON tilldone_runner (project_id)")
+  db.run("CREATE INDEX IF NOT EXISTS tilldone_worker_runner_session_idx ON tilldone_worker (runner_session_id)")
+  db.run("CREATE INDEX IF NOT EXISTS tilldone_worker_project_idx ON tilldone_worker (project_id)")
+  db.run("CREATE INDEX IF NOT EXISTS tilldone_worker_task_idx ON tilldone_worker (task_id)")
+  db.run("CREATE INDEX IF NOT EXISTS tilldone_worker_status_idx ON tilldone_worker (status)")
+}
+
 export const Client = lazy(() => {
   log.info("opening database", { path: Path })
 
@@ -110,6 +149,8 @@ export const Client = lazy(() => {
     }
     migrate(db, entries)
   }
+
+  repairTillDoneSchema(db)
 
   return db
 })
